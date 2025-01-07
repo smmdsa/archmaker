@@ -1,6 +1,7 @@
 import Konva from 'konva';
 import { ToolType } from './Toolbar';
 import { ProjectStore, Point, Wall } from '../store/ProjectStore';
+import { AddWallCommand } from '../store/commands/WallCommands';
 
 export class Canvas2D {
     private stage: Konva.Stage;
@@ -48,6 +49,7 @@ export class Canvas2D {
 
         // Setup event listeners
         this.setupEventListeners();
+        this.setupKeyboardShortcuts();
 
         // Handle window resize
         window.addEventListener('resize', this.handleResize.bind(this));
@@ -133,13 +135,17 @@ export class Canvas2D {
         const pos = this.stage.getPointerPosition();
         if (!pos) return null;
 
-        // Convert stage coordinates to layer coordinates
-        const layerPos = {
-            x: (pos.x - this.layer.x()) / this.layer.scaleX(),
-            y: (pos.y - this.layer.y()) / this.layer.scaleY()
-        };
+        // Get the current transform of the layer
+        const transform = this.layer.getAbsoluteTransform().copy();
+        // Invert the transform to get the correct relative position
+        transform.invert();
+        // Transform the point
+        const transformedPos = transform.point(pos);
 
-        return layerPos;
+        return {
+            x: transformedPos.x,
+            y: transformedPos.y
+        };
     }
 
     private setupEventListeners(): void {
@@ -183,14 +189,23 @@ export class Canvas2D {
         // Handle drawing and dragging
         this.stage.on('mousedown touchstart', (e) => {
             e.evt.preventDefault();
-            const pos = this.getRelativePointerPosition();
-            if (!pos) return;
 
             if (this.currentTool === ToolType.WALL) {
+                const pos = this.getRelativePointerPosition();
+                if (!pos) return;
                 this.startDrawing(pos);
-            } else {
-                // Enable dragging for non-drawing tools
+            } else if (this.currentTool === ToolType.MOVE) {
+                // Enable dragging for move tool
                 this.stage.draggable(true);
+                // Store the initial transform
+                this.gridLayer.startPos = {
+                    x: this.gridLayer.x(),
+                    y: this.gridLayer.y()
+                };
+                this.layer.startPos = {
+                    x: this.layer.x(),
+                    y: this.layer.y()
+                };
             }
         });
 
@@ -198,6 +213,14 @@ export class Canvas2D {
             e.evt.preventDefault();
             if (this.isDrawing) {
                 this.handleDrawing(e);
+            } else if (this.currentTool === ToolType.MOVE && this.stage.isDragging()) {
+                // Sync grid layer with main layer during drag
+                const dx = this.layer.x() - this.layer.startPos.x;
+                const dy = this.layer.y() - this.layer.startPos.y;
+                this.gridLayer.position({
+                    x: this.gridLayer.startPos.x + dx,
+                    y: this.gridLayer.startPos.y + dy
+                });
             }
         });
 
@@ -205,6 +228,7 @@ export class Canvas2D {
             if (this.isDrawing) {
                 this.handleDrawingEnd();
             }
+            // Disable dragging after mouse up
             this.stage.draggable(false);
         });
 
@@ -279,7 +303,8 @@ export class Canvas2D {
 
         // Only create wall if it has some length
         if (this.getDistance(start, end) > 10) {
-            this.store.addWall(start, end);
+            const command = new AddWallCommand(this.store, start, end);
+            this.store.executeCommand(command);
         }
 
         this.tempLine.destroy();
@@ -371,12 +396,38 @@ export class Canvas2D {
             this.layer.batchDraw();
         }
         // Disable stage dragging when in wall drawing mode
-        this.stage.draggable(tool !== ToolType.WALL);
+        this.stage.draggable(tool === ToolType.MOVE);
     }
 
     public clear(): void {
         this.layer.destroyChildren();
         this.layer.batchDraw();
         this.store.clear();
+    }
+
+    // Add keyboard shortcuts for undo/redo
+    private setupKeyboardShortcuts(): void {
+        window.addEventListener('keydown', (e) => {
+            // Check if Ctrl/Cmd key is pressed
+            if (e.ctrlKey || e.metaKey) {
+                switch (e.key.toLowerCase()) {
+                    case 'z':
+                        if (e.shiftKey) {
+                            // Ctrl+Shift+Z or Cmd+Shift+Z for Redo
+                            this.store.redo();
+                        } else {
+                            // Ctrl+Z or Cmd+Z for Undo
+                            this.store.undo();
+                        }
+                        e.preventDefault();
+                        break;
+                    case 'y':
+                        // Ctrl+Y or Cmd+Y for Redo
+                        this.store.redo();
+                        e.preventDefault();
+                        break;
+                }
+            }
+        });
     }
 } 

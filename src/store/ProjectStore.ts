@@ -1,3 +1,5 @@
+import { Command, CommandManager } from './commands/Command';
+
 export interface Point {
     x: number;
     y: number;
@@ -20,40 +22,70 @@ export interface Opening {
 }
 
 export class ProjectStore {
-    private walls: Wall[] = [];
-    private openings: Opening[] = [];
+    private walls: Map<string, Wall> = new Map();
+    private openings: Map<string, Opening> = new Map();
     private listeners: Array<() => void> = [];
+    private commandManager: CommandManager;
 
-    public addWall(start: Point, end: Point, height: number = 2.4): void {
-        const wall: Wall = {
-            id: crypto.randomUUID(),
-            start,
-            end,
-            height
-        };
-        this.walls.push(wall);
+    constructor() {
+        this.commandManager = new CommandManager();
+    }
+
+    public addWall(start: Point, end: Point, height: number = 2.4): string {
+        const id = crypto.randomUUID();
+        const wall: Wall = { id, start, end, height };
+        this.walls.set(id, wall);
+        this.notifyListeners();
+        return id;
+    }
+
+    public addWallWithId(id: string, start: Point, end: Point, height: number): void {
+        const wall: Wall = { id, start, end, height };
+        this.walls.set(id, wall);
         this.notifyListeners();
     }
 
-    public addOpening(type: 'door' | 'window', position: Point, width: number, height: number, wallId: string): void {
+    public removeWall(id: string): void {
+        this.walls.delete(id);
+        // Remove any openings associated with this wall
+        for (const [openingId, opening] of this.openings.entries()) {
+            if (opening.wallId === id) {
+                this.openings.delete(openingId);
+            }
+        }
+        this.notifyListeners();
+    }
+
+    public getWall(id: string): Wall | undefined {
+        return this.walls.get(id);
+    }
+
+    public addOpening(type: 'door' | 'window', position: Point, width: number, height: number, wallId: string): string {
+        const id = crypto.randomUUID();
         const opening: Opening = {
-            id: crypto.randomUUID(),
+            id,
             type,
             position,
             width,
             height,
             wallId
         };
-        this.openings.push(opening);
+        this.openings.set(id, opening);
+        this.notifyListeners();
+        return id;
+    }
+
+    public removeOpening(id: string): void {
+        this.openings.delete(id);
         this.notifyListeners();
     }
 
     public getWalls(): Wall[] {
-        return [...this.walls];
+        return Array.from(this.walls.values());
     }
 
     public getOpenings(): Opening[] {
-        return [...this.openings];
+        return Array.from(this.openings.values());
     }
 
     public subscribe(listener: () => void): () => void {
@@ -68,16 +100,41 @@ export class ProjectStore {
     }
 
     public clear(): void {
-        this.walls = [];
-        this.openings = [];
+        this.walls.clear();
+        this.openings.clear();
+        this.commandManager.clear();
         this.notifyListeners();
+    }
+
+    public undo(): void {
+        if (this.commandManager.canUndo()) {
+            this.commandManager.undo();
+        }
+    }
+
+    public redo(): void {
+        if (this.commandManager.canRedo()) {
+            this.commandManager.redo();
+        }
+    }
+
+    public canUndo(): boolean {
+        return this.commandManager.canUndo();
+    }
+
+    public canRedo(): boolean {
+        return this.commandManager.canRedo();
+    }
+
+    public executeCommand(command: Command): void {
+        this.commandManager.execute(command);
     }
 
     // Export project data
     public exportProject(): string {
         const projectData = {
-            walls: this.walls,
-            openings: this.openings
+            walls: Array.from(this.walls.values()),
+            openings: Array.from(this.openings.values())
         };
         return JSON.stringify(projectData, null, 2);
     }
@@ -86,12 +143,22 @@ export class ProjectStore {
     public importProject(jsonData: string): void {
         try {
             const data = JSON.parse(jsonData);
+            this.walls.clear();
+            this.openings.clear();
+            
             if (data.walls && Array.isArray(data.walls)) {
-                this.walls = data.walls;
+                data.walls.forEach((wall: Wall) => {
+                    this.walls.set(wall.id, wall);
+                });
             }
+            
             if (data.openings && Array.isArray(data.openings)) {
-                this.openings = data.openings;
+                data.openings.forEach((opening: Opening) => {
+                    this.openings.set(opening.id, opening);
+                });
             }
+            
+            this.commandManager.clear();
             this.notifyListeners();
         } catch (error) {
             console.error('Error importing project data:', error);
