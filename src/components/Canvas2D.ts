@@ -13,6 +13,7 @@ export class Canvas2D {
     private currentTool: ToolType = ToolType.SELECT;
     private selectedShape: Konva.Shape | null = null;
     private container: HTMLElement;
+    private readonly SNAP_THRESHOLD = 20; // Distancia máxima para el snap en píxeles
 
     constructor(containerId: string, private store: ProjectStore) {
         const container = document.getElementById(containerId);
@@ -274,15 +275,23 @@ export class Canvas2D {
         const layerPos = this.getRelativePointerPosition();
         if (!layerPos) return;
 
+        // Aplicar snap al punto inicial
+        const snappedPos = this.findSnapPoint(layerPos);
+
         this.isDrawing = true;
         this.tempLine = new Konva.Line({
-            points: [layerPos.x, layerPos.y, layerPos.x, layerPos.y],
+            points: [snappedPos.x, snappedPos.y, snappedPos.x, snappedPos.y],
             stroke: '#2c3e50',
             strokeWidth: 3,
             dash: [5, 5],
             lineCap: 'round'
         });
         this.layer.add(this.tempLine);
+
+        // Mostrar indicador de snap si es necesario
+        if (snappedPos !== layerPos) {
+            this.drawSnapIndicator(snappedPos);
+        }
     }
 
     private handleDrawing(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
@@ -290,7 +299,18 @@ export class Canvas2D {
         if (!layerPos || !this.tempLine) return;
 
         const points = this.tempLine.points();
-        this.tempLine.points([points[0], points[1], layerPos.x, layerPos.y]);
+        const snapPoint = this.findSnapPoint(layerPos);
+
+        // Actualizar la línea temporal con el punto de snap
+        this.tempLine.points([points[0], points[1], snapPoint.x, snapPoint.y]);
+
+        // Dibujar indicador visual de snap si estamos en un punto de snap
+        if (snapPoint !== layerPos) {
+            this.drawSnapIndicator(snapPoint);
+        } else {
+            this.clearSnapIndicators();
+        }
+
         this.layer.batchDraw();
     }
 
@@ -301,15 +321,19 @@ export class Canvas2D {
         const start: Point = { x: points[0], y: points[1] };
         const end: Point = { x: points[2], y: points[3] };
 
-        // Only create wall if it has some length
-        if (this.getDistance(start, end) > 10) {
-            const command = new AddWallCommand(this.store, start, end);
+        // Aplicar snap al punto final antes de crear la pared
+        const snappedEnd = this.findSnapPoint(end);
+
+        // Solo crear la pared si tiene una longitud mínima
+        if (this.getDistance(start, snappedEnd) > 10) {
+            const command = new AddWallCommand(this.store, start, snappedEnd);
             this.store.executeCommand(command);
         }
 
         this.tempLine.destroy();
         this.tempLine = null;
         this.isDrawing = false;
+        this.clearSnapIndicators();
         this.layer.batchDraw();
     }
 
@@ -429,5 +453,48 @@ export class Canvas2D {
                 }
             }
         });
+    }
+
+    private findSnapPoint(point: Point): Point {
+        // Primero, intentamos snap a los puntos finales de las paredes existentes
+        const walls = this.store.getWalls();
+        for (const wall of walls) {
+            // Comprobar el punto inicial de la pared
+            if (this.getDistance(point, wall.start) < this.SNAP_THRESHOLD) {
+                return wall.start;
+            }
+            // Comprobar el punto final de la pared
+            if (this.getDistance(point, wall.end) < this.SNAP_THRESHOLD) {
+                return wall.end;
+            }
+        }
+
+        // Si no encontramos un punto para hacer snap, devolvemos el punto original
+        return point;
+    }
+
+    private drawSnapIndicator(point: Point): void {
+        // Limpiar indicadores anteriores
+        this.clearSnapIndicators();
+
+        // Crear un nuevo indicador
+        const indicator = new Konva.Circle({
+            x: point.x,
+            y: point.y,
+            radius: 5,
+            fill: '#2ecc71',
+            stroke: '#27ae60',
+            strokeWidth: 2,
+            name: 'snap-indicator' // Para poder identificarlo después
+        });
+
+        this.layer.add(indicator);
+        this.layer.batchDraw();
+    }
+
+    private clearSnapIndicators(): void {
+        // Eliminar todos los indicadores de snap existentes
+        this.layer.find('.snap-indicator').forEach(node => node.destroy());
+        this.layer.batchDraw();
     }
 } 
