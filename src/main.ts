@@ -1,4 +1,4 @@
-import './style.css';
+import './styles/style.css';
 import { Canvas2D } from './components/Canvas2D';
 import { Toolbar, ToolType } from './components/Toolbar';
 import { ProjectStore } from './store/ProjectStore';
@@ -58,114 +58,7 @@ const propertiesPanel = new PropertiesPanel('properties-panel', (props: WallProp
 const viewer3D = new Viewer3D('viewer', store);
 
 // Set initial tool to wall
-toolbar.selectTool(ToolType.WALL);
-
-// Add styles
-const style = document.createElement('style');
-style.textContent = `
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-    }
-
-    #app {
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        background: #f5f5f5;
-    }
-
-    #main-content {
-        flex: 1;
-        display: flex;
-        overflow: hidden;
-        gap: 1px;
-        background: #ccc;
-        height: calc(100vh - 1px);
-    }
-
-    #toolbar {
-        width: 60px;
-        background: #ffffff;
-        padding: 10px;
-        border-right: 1px solid #ccc;
-        z-index: 100;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-    }
-
-    #editor {
-        flex: 1;
-        overflow: hidden;
-        position: relative;
-        min-width: 0;
-        background: #ffffff;
-        display: flex;
-        flex-direction: column;
-    }
-
-    #viewer {
-        flex: 1;
-        overflow: hidden;
-        position: relative;
-        min-width: 0;
-        background: #f0f0f0;
-    }
-
-    #properties-panel {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        z-index: 100;
-        min-width: 200px;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
-    .konvajs-content {
-        position: absolute !important;
-        top: 0;
-        left: 0;
-        width: 100% !important;
-        height: 100% !important;
-    }
-
-    .konvajs-content canvas {
-        width: 100% !important;
-        height: 100% !important;
-    }
-
-    /* Cursor styles */
-    #editor[data-tool="wall"] {
-        cursor: crosshair;
-    }
-    #editor[data-tool="select"] {
-        cursor: pointer;
-    }
-    #editor[data-tool="move"] {
-        cursor: move;
-    }
-
-    /* Debug overlay */
-    .debug-overlay {
-        position: fixed;
-        bottom: 10px;
-        left: 10px;
-        background: rgba(0,0,0,0.7);
-        color: white;
-        padding: 5px 10px;
-        border-radius: 4px;
-        font-size: 12px;
-        z-index: 1000;
-    }
-`;
-document.head.appendChild(style);
+toolbar.selectTool(ToolType.MOVE);
 
 // Add debug overlay
 const debugOverlay = document.createElement('div');

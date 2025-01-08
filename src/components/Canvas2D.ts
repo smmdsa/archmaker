@@ -13,10 +13,13 @@ interface ExtendedLayer extends Konva.Layer {
 }
 
 export class Canvas2D {
+    private RIGHT_CLICK_CONTEXT_MENU: string = 'contextmenu';
     private stage: Konva.Stage;
     private layer: ExtendedLayer;
     private gridLayer: ExtendedLayer;
     private tempLine: Konva.Line | null = null;
+    private tempDimensionLabel: Konva.Text | null = null;
+    private tempDimensionBackground: Konva.Rect | null = null;
     private isDrawing: boolean = false;
     private gridSize: number = 100; // 100 píxeles = 1 metro
     private readonly GRID_METER_SIZE = 100; // Constante para conversión metro-píxel
@@ -33,6 +36,12 @@ export class Canvas2D {
         const container = document.getElementById(containerId);
         if (!container) throw new Error('Container not found');
         this.container = container;
+
+        // Prevent right click context menu
+        container.addEventListener(this.RIGHT_CLICK_CONTEXT_MENU, (e) => {
+            e.preventDefault();
+            return false;
+        });
 
         // Initialize Konva Stage with container dimensions
         this.stage = new Konva.Stage({
@@ -100,18 +109,18 @@ export class Canvas2D {
         this.gridLayer.destroyChildren();
 
         // Calculate grid dimensions
-        const viewportWidth = this.stage.width() * 2;
-        const viewportHeight = this.stage.height() * 2;
+        const viewportWidth = this.stage.width() * 8;
+        const viewportHeight = this.stage.height() * 8;
         const offsetX = -viewportWidth / 2;
         const offsetY = -viewportHeight / 2;
-
+        const fillColor = '#aaaaaa';
         // Add background
         const background = new Konva.Rect({
             x: offsetX,
             y: offsetY,
             width: viewportWidth,
             height: viewportHeight,
-            fill: '#f8f9fa'
+            fill: fillColor
         });
         this.gridLayer.add(background);
 
@@ -381,6 +390,57 @@ export class Canvas2D {
             snapPoint.y
         ]);
 
+        // Calcular y mostrar la longitud en tiempo real
+        const start: Point = { x: points[0], y: points[1] };
+        const end: Point = { x: snapPoint.x, y: snapPoint.y };
+        const distance = this.getDistance(start, end);
+        const distanceMeters = (distance / this.GRID_METER_SIZE).toFixed(2);
+
+        // Calcular posición y ángulo para el texto
+        const centerX = (start.x + end.x) / 2;
+        const centerY = (start.y + end.y) / 2;
+        const angle = Math.atan2(end.y - start.y, end.x - start.x);
+
+        // Eliminar etiquetas anteriores si existen
+        if (this.tempDimensionLabel) {
+            this.tempDimensionLabel.destroy();
+        }
+        if (this.tempDimensionBackground) {
+            this.tempDimensionBackground.destroy();
+        }
+
+        // Crear nuevo texto con las dimensiones
+        this.tempDimensionLabel = new Konva.Text({
+            x: centerX,
+            y: centerY,
+            text: `${distanceMeters}m`,
+            fontSize: 12,
+            fontFamily: 'Arial',
+            fill: '#2c3e50',
+            padding: 4,
+            rotation: angle * (180 / Math.PI),
+            offsetX: 20,
+            name: 'temp-dimension-label'
+        });
+
+        // Crear fondo para el texto
+        this.tempDimensionBackground = new Konva.Rect({
+            x: centerX,
+            y: centerY,
+            width: this.tempDimensionLabel.width() + 8,
+            height: this.tempDimensionLabel.height() + 8,
+            fill: 'white',
+            opacity: 0.8,
+            cornerRadius: 4,
+            rotation: angle * (180 / Math.PI),
+            offsetX: 20,
+            name: 'temp-dimension-background'
+        });
+
+        // Añadir elementos a la capa
+        this.layer.add(this.tempDimensionBackground);
+        this.layer.add(this.tempDimensionLabel);
+
         // Dibujar indicador visual de snap si estamos en un punto de snap
         if (snapPoint !== layerPos) {
             this.drawSnapIndicator(snapPoint);
@@ -397,11 +457,11 @@ export class Canvas2D {
         const points = this.tempLine.points();
         const start: Point = {
             x: points[0],
-            y: points[1]  // Ya no invertimos Y
+            y: points[1]
         };
         const end: Point = {
             x: points[2],
-            y: points[3]  // Ya no invertimos Y
+            y: points[3]
         };
 
         // Solo crear la pared si tiene una longitud mínima
@@ -416,8 +476,17 @@ export class Canvas2D {
             this.store.executeCommand(command);
         }
 
+        // Limpiar elementos temporales
         this.tempLine.destroy();
         this.tempLine = null;
+        if (this.tempDimensionLabel) {
+            this.tempDimensionLabel.destroy();
+            this.tempDimensionLabel = null;
+        }
+        if (this.tempDimensionBackground) {
+            this.tempDimensionBackground.destroy();
+            this.tempDimensionBackground = null;
+        }
         this.isDrawing = false;
         this.clearSnapIndicators();
         this.layer.batchDraw();
