@@ -2,18 +2,32 @@ import Konva from 'konva';
 import { ToolType } from './Toolbar';
 import { ProjectStore, Point, Wall } from '../store/ProjectStore';
 import { AddWallCommand } from '../store/commands/WallCommands';
+import { WallProperties } from './PropertiesPanel';
+
+// Extender la interfaz de Layer para incluir startPos
+interface ExtendedLayer extends Konva.Layer {
+    startPos?: {
+        x: number;
+        y: number;
+    };
+}
 
 export class Canvas2D {
     private stage: Konva.Stage;
-    private layer: Konva.Layer;
-    private gridLayer: Konva.Layer;
+    private layer: ExtendedLayer;
+    private gridLayer: ExtendedLayer;
     private tempLine: Konva.Line | null = null;
     private isDrawing: boolean = false;
-    private gridSize: number = 50;
+    private gridSize: number = 100; // 100 píxeles = 1 metro
+    private readonly GRID_METER_SIZE = 100; // Constante para conversión metro-píxel
     private currentTool: ToolType = ToolType.SELECT;
     private selectedShape: Konva.Shape | null = null;
     private container: HTMLElement;
     private readonly SNAP_THRESHOLD = 20; // Distancia máxima para el snap en píxeles
+    private wallProperties: WallProperties = {
+        height: 240,
+        thickness: 15
+    };
 
     constructor(containerId: string, private store: ProjectStore) {
         const container = document.getElementById(containerId);
@@ -60,6 +74,9 @@ export class Canvas2D {
 
         // Initial update from store
         this.updateFromStore();
+
+        // Dibujar los ejes de referencia
+        this.drawAxes();
     }
 
     private centerView(): void {
@@ -100,26 +117,54 @@ export class Canvas2D {
 
         // Draw grid lines
         for (let x = offsetX; x <= viewportWidth / 2; x += this.gridSize) {
+            const isMajor = Math.round(x / this.gridSize) % 5 === 0;
             this.gridLayer.add(new Konva.Line({
                 points: [x, offsetY, x, -offsetY],
-                stroke: x === 0 ? '#2c3e50' : '#e2e8f0',
-                strokeWidth: x === 0 ? 2 : 1
+                stroke: x === 0 ? '#2c3e50' : (isMajor ? '#a0aec0' : '#e2e8f0'),
+                strokeWidth: x === 0 ? 2 : (isMajor ? 1 : 0.5)
             }));
+
+            // Añadir etiquetas de medida para líneas principales
+            if (isMajor && x !== 0) {
+                const label = new Konva.Text({
+                    x: x - 15,
+                    y: 10,
+                    text: `${x / this.GRID_METER_SIZE}m`,
+                    fontSize: 12,
+                    fontFamily: 'Arial',
+                    fill: '#666'
+                });
+                this.gridLayer.add(label);
+            }
         }
 
         for (let y = offsetY; y <= viewportHeight / 2; y += this.gridSize) {
+            const isMajor = Math.round(y / this.gridSize) % 5 === 0;
             this.gridLayer.add(new Konva.Line({
                 points: [offsetX, y, -offsetX, y],
-                stroke: y === 0 ? '#2c3e50' : '#e2e8f0',
-                strokeWidth: y === 0 ? 2 : 1
+                stroke: y === 0 ? '#2c3e50' : (isMajor ? '#a0aec0' : '#e2e8f0'),
+                strokeWidth: y === 0 ? 2 : (isMajor ? 1 : 0.5)
             }));
+
+            // Añadir etiquetas de medida para líneas principales
+            if (isMajor && y !== 0) {
+                const label = new Konva.Text({
+                    x: 10,
+                    y: y - 6,
+                    text: `${y / this.GRID_METER_SIZE}m`,
+                    fontSize: 12,
+                    fontFamily: 'Arial',
+                    fill: '#666'
+                });
+                this.gridLayer.add(label);
+            }
         }
 
-        // Add "2D Editor" label
+        // Add "2D Editor" label with scale information
         const label = new Konva.Text({
             x: 20,
             y: 20,
-            text: '2D Editor - Click and drag to draw walls',
+            text: '2D Editor - 1 cuadrado = 1 metro',
             fontSize: 16,
             fontFamily: 'Arial',
             fill: '#2c3e50',
@@ -142,6 +187,16 @@ export class Canvas2D {
         transform.invert();
         // Transform the point
         const transformedPos = transform.point(pos);
+
+        // Debug coordinates
+        console.log('Mouse Position:', {
+            screen: pos,
+            transformed: transformedPos,
+            meters: {
+                x: transformedPos.x / this.GRID_METER_SIZE,
+                y: transformedPos.y / this.GRID_METER_SIZE
+            }
+        });
 
         return {
             x: transformedPos.x,
@@ -207,6 +262,16 @@ export class Canvas2D {
                     x: this.layer.x(),
                     y: this.layer.y()
                 };
+
+                // Update position based on drag
+                const newGridPos = {
+                    x: (this.gridLayer.startPos?.x || 0) + e.evt.movementX,
+                    y: (this.gridLayer.startPos?.y || 0) + e.evt.movementY
+                };
+                const newLayerPos = {
+                    x: (this.layer.startPos?.x || 0) + e.evt.movementX,
+                    y: (this.layer.startPos?.y || 0) + e.evt.movementY
+                };
             }
         });
 
@@ -216,12 +281,14 @@ export class Canvas2D {
                 this.handleDrawing(e);
             } else if (this.currentTool === ToolType.MOVE && this.stage.isDragging()) {
                 // Sync grid layer with main layer during drag
-                const dx = this.layer.x() - this.layer.startPos.x;
-                const dy = this.layer.y() - this.layer.startPos.y;
-                this.gridLayer.position({
-                    x: this.gridLayer.startPos.x + dx,
-                    y: this.gridLayer.startPos.y + dy
-                });
+                if (this.layer.startPos && this.gridLayer.startPos) {
+                    const dx = this.layer.x() - this.layer.startPos.x;
+                    const dy = this.layer.y() - this.layer.startPos.y;
+                    this.gridLayer.position({
+                        x: this.gridLayer.startPos.x + dx,
+                        y: this.gridLayer.startPos.y + dy
+                    });
+                }
             }
         });
 
@@ -280,7 +347,12 @@ export class Canvas2D {
 
         this.isDrawing = true;
         this.tempLine = new Konva.Line({
-            points: [snappedPos.x, snappedPos.y, snappedPos.x, snappedPos.y],
+            points: [
+                snappedPos.x,
+                snappedPos.y,  // Ya no invertimos Y
+                snappedPos.x,
+                snappedPos.y   // Ya no invertimos Y
+            ],
             stroke: '#2c3e50',
             strokeWidth: 3,
             dash: [5, 5],
@@ -301,8 +373,13 @@ export class Canvas2D {
         const points = this.tempLine.points();
         const snapPoint = this.findSnapPoint(layerPos);
 
-        // Actualizar la línea temporal con el punto de snap
-        this.tempLine.points([points[0], points[1], snapPoint.x, snapPoint.y]);
+        // Actualizar la línea temporal sin invertir Y
+        this.tempLine.points([
+            points[0],
+            points[1],
+            snapPoint.x,
+            snapPoint.y
+        ]);
 
         // Dibujar indicador visual de snap si estamos en un punto de snap
         if (snapPoint !== layerPos) {
@@ -318,15 +395,24 @@ export class Canvas2D {
         if (!this.isDrawing || !this.tempLine) return;
 
         const points = this.tempLine.points();
-        const start: Point = { x: points[0], y: points[1] };
-        const end: Point = { x: points[2], y: points[3] };
-
-        // Aplicar snap al punto final antes de crear la pared
-        const snappedEnd = this.findSnapPoint(end);
+        const start: Point = {
+            x: points[0],
+            y: points[1]  // Ya no invertimos Y
+        };
+        const end: Point = {
+            x: points[2],
+            y: points[3]  // Ya no invertimos Y
+        };
 
         // Solo crear la pared si tiene una longitud mínima
-        if (this.getDistance(start, snappedEnd) > 10) {
-            const command = new AddWallCommand(this.store, start, snappedEnd);
+        if (this.getDistance(start, end) > 10) {
+            const command = new AddWallCommand(
+                this.store, 
+                start,
+                end,
+                this.wallProperties.height,
+                this.wallProperties.thickness
+            );
             this.store.executeCommand(command);
         }
 
@@ -366,27 +452,21 @@ export class Canvas2D {
         // Redraw walls
         this.store.getWalls().forEach(wall => {
             const line = new Konva.Line({
-                points: [wall.start.x, wall.start.y, wall.end.x, wall.end.y],
+                points: [
+                    wall.start.x,
+                    wall.start.y,  // Ya no invertimos Y
+                    wall.end.x,
+                    wall.end.y     // Ya no invertimos Y
+                ],
                 stroke: '#2c3e50',
                 strokeWidth: 3,
                 lineCap: 'round',
                 id: wall.id
             });
             this.layer.add(line);
-        });
 
-        // Redraw openings (doors and windows)
-        this.store.getOpenings().forEach(opening => {
-            const rect = new Konva.Rect({
-                x: opening.position.x - opening.width / 2,
-                y: opening.position.y - opening.width / 2,
-                width: opening.width,
-                height: opening.width,
-                fill: opening.type === 'door' ? '#e67e22' : '#3498db',
-                cornerRadius: 4,
-                id: opening.id
-            });
-            this.layer.add(rect);
+            // Mostrar dimensiones para cada pared
+            this.showWallDimensions(wall.start, wall.end);
         });
 
         this.layer.batchDraw();
@@ -496,5 +576,178 @@ export class Canvas2D {
         // Eliminar todos los indicadores de snap existentes
         this.layer.find('.snap-indicator').forEach(node => node.destroy());
         this.layer.batchDraw();
+    }
+
+    public updateWallProperties(props: WallProperties): void {
+        this.wallProperties = { ...props };
+    }
+
+    private showWallDimensions(start: Point, end: Point): void {
+        const distance = this.getDistance(start, end);
+        const distanceMeters = (distance / this.GRID_METER_SIZE).toFixed(2); // Convertir a metros
+
+        // Calcular posición para el texto
+        const centerX = (start.x + end.x) / 2;
+        const centerY = (start.y + end.y) / 2;
+        
+        // Calcular el ángulo de la pared
+        const angle = Math.atan2(end.y - start.y, end.x - start.x);
+        
+        // Crear texto con las dimensiones
+        const dimensionText = new Konva.Text({
+            x: centerX,
+            y: centerY,
+            text: `${distanceMeters}m`,
+            fontSize: 12,
+            fontFamily: 'Arial',
+            fill: '#2c3e50',
+            padding: 4,
+            rotation: angle * (180 / Math.PI),
+            offsetX: 20,
+            name: 'dimension-label'
+        });
+
+        // Agregar fondo blanco al texto
+        const textBackground = new Konva.Rect({
+            x: centerX,
+            y: centerY,
+            width: dimensionText.width() + 8,
+            height: dimensionText.height() + 8,
+            fill: 'white',
+            opacity: 0.8,
+            cornerRadius: 4,
+            rotation: angle * (180 / Math.PI),
+            offsetX: 20,
+            name: 'dimension-background'
+        });
+
+        this.layer.add(textBackground);
+        this.layer.add(dimensionText);
+        this.layer.batchDraw();
+    }
+
+    private drawAxes(): void {
+        // Ejes principales
+        const axisLayer = new Konva.Layer();
+        this.stage.add(axisLayer);
+
+        // Eje X (rojo)
+        const xAxis = new Konva.Arrow({
+            points: [-5000, 0, 5000, 0],
+            stroke: '#FF0000',
+            fill: '#FF0000',
+            strokeWidth: 2,
+            pointerLength: 10,
+            pointerWidth: 10
+        });
+
+        // Eje Y (azul) - Invertido para mantener consistencia con Three.js
+        const yAxis = new Konva.Arrow({
+            points: [0, 5000, 0, -5000],
+            stroke: '#0000FF',
+            fill: '#0000FF',
+            strokeWidth: 2,
+            pointerLength: 10,
+            pointerWidth: 10
+        });
+
+        // Etiquetas de los ejes
+        const xLabel = new Konva.Text({
+            x: 5010,
+            y: 10,
+            text: 'X',
+            fontSize: 16,
+            fill: '#FF0000',
+            fontStyle: 'bold'
+        });
+
+        const yLabel = new Konva.Text({
+            x: 10,
+            y: -5010,
+            text: 'Y',
+            fontSize: 16,
+            fill: '#0000FF',
+            fontStyle: 'bold'
+        });
+
+        // Coordenadas en tiempo real
+        const coordsText = new Konva.Text({
+            x: 10,
+            y: 50,
+            text: 'Coordenadas: (0, 0)',
+            fontSize: 14,
+            fill: '#2c3e50',
+            padding: 5,
+            backgroundColor: 'rgba(255,255,255,0.8)',
+            cornerRadius: 3
+        });
+
+        // Actualizar coordenadas en tiempo real
+        this.stage.on('mousemove', () => {
+            const pos = this.getRelativePointerPosition();
+            if (pos) {
+                const x = (pos.x / this.GRID_METER_SIZE).toFixed(2);
+                const y = (pos.y / this.GRID_METER_SIZE).toFixed(2);
+                coordsText.text(`Coordenadas: (${x}m, ${y}m)`);
+                axisLayer.batchDraw();
+            }
+        });
+
+        // Marcas de medición en los ejes
+        for (let i = -50; i <= 50; i++) {
+            if (i === 0) continue;
+            const pos = i * this.GRID_METER_SIZE;
+            
+            // Marcas en X
+            const xTick = new Konva.Line({
+                points: [pos, -5, pos, 5],
+                stroke: '#FF0000',
+                strokeWidth: 1
+            });
+            
+            const xText = new Konva.Text({
+                x: pos - 10,
+                y: 10,
+                text: `${i}m`,
+                fontSize: 10,
+                fill: '#FF0000'
+            });
+            
+            // Marcas en Y
+            const yTick = new Konva.Line({
+                points: [-5, pos, 5, pos],
+                stroke: '#0000FF',
+                strokeWidth: 1
+            });
+            
+            const yText = new Konva.Text({
+                x: 10,
+                y: pos - 5,
+                text: `${i}m`,
+                fontSize: 10,
+                fill: '#0000FF'
+            });
+            
+            axisLayer.add(xTick, xText, yTick, yText);
+        }
+
+        // Origen (0,0)
+        const originPoint = new Konva.Circle({
+            x: 0,
+            y: 0,
+            radius: 5,
+            fill: '#2c3e50'
+        });
+
+        const originLabel = new Konva.Text({
+            x: 10,
+            y: 10,
+            text: '(0,0)',
+            fontSize: 12,
+            fill: '#2c3e50'
+        });
+
+        axisLayer.add(xAxis, yAxis, xLabel, yLabel, originPoint, originLabel, coordsText);
+        axisLayer.moveToTop();
     }
 } 

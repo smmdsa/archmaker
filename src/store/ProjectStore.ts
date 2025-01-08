@@ -9,7 +9,8 @@ export interface Wall {
     id: string;
     start: Point;
     end: Point;
-    height: number;
+    height: number;  // en centímetros
+    thickness: number;  // en centímetros
 }
 
 export interface Opening {
@@ -31,16 +32,16 @@ export class ProjectStore {
         this.commandManager = new CommandManager();
     }
 
-    public addWall(start: Point, end: Point, height: number = 2.4): string {
+    public addWall(start: Point, end: Point, height: number = 240, thickness: number = 15): string {
         const id = crypto.randomUUID();
-        const wall: Wall = { id, start, end, height };
+        const wall: Wall = { id, start, end, height, thickness };
         this.walls.set(id, wall);
         this.notifyListeners();
         return id;
     }
 
-    public addWallWithId(id: string, start: Point, end: Point, height: number): void {
-        const wall: Wall = { id, start, end, height };
+    public addWallWithId(id: string, start: Point, end: Point, height: number, thickness: number): void {
+        const wall: Wall = { id, start, end, height, thickness };
         this.walls.set(id, wall);
         this.notifyListeners();
     }

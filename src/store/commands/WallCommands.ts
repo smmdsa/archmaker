@@ -1,5 +1,5 @@
 import { Command } from './Command';
-import { ProjectStore, Wall, Point } from '../ProjectStore';
+import { ProjectStore, Point } from '../ProjectStore';
 
 export class AddWallCommand implements Command {
     private wallId: string | null = null;
@@ -8,11 +8,12 @@ export class AddWallCommand implements Command {
         private store: ProjectStore,
         private start: Point,
         private end: Point,
-        private height: number = 2.4
+        private height: number = 240,
+        private thickness: number = 15
     ) {}
 
     execute(): void {
-        this.wallId = this.store.addWall(this.start, this.end, this.height);
+        this.wallId = this.store.addWall(this.start, this.end, this.height, this.thickness);
     }
 
     undo(): void {
@@ -23,27 +24,35 @@ export class AddWallCommand implements Command {
 }
 
 export class RemoveWallCommand implements Command {
-    private removedWall: Wall | null = null;
+    private wallData: {
+        id: string;
+        start: Point;
+        end: Point;
+        height: number;
+        thickness: number;
+    } | null = null;
 
-    constructor(
-        private store: ProjectStore,
-        private wallId: string
-    ) {}
+    constructor(private store: ProjectStore, private wallId: string) {
+        const wall = store.getWall(wallId);
+        if (wall) {
+            this.wallData = { ...wall };
+        }
+    }
 
     execute(): void {
-        this.removedWall = this.store.getWall(this.wallId);
-        if (this.removedWall) {
-            this.store.removeWall(this.wallId);
+        if (this.wallData) {
+            this.store.removeWall(this.wallData.id);
         }
     }
 
     undo(): void {
-        if (this.removedWall) {
+        if (this.wallData) {
             this.store.addWallWithId(
-                this.removedWall.id,
-                this.removedWall.start,
-                this.removedWall.end,
-                this.removedWall.height
+                this.wallData.id,
+                this.wallData.start,
+                this.wallData.end,
+                this.wallData.height,
+                this.wallData.thickness
             );
         }
     }

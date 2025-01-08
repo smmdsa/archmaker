@@ -3,6 +3,7 @@ import { Canvas2D } from './components/Canvas2D';
 import { Toolbar, ToolType } from './components/Toolbar';
 import { ProjectStore } from './store/ProjectStore';
 import { Viewer3D } from './scenes/Viewer3D';
+import { PropertiesPanel, WallProperties } from './components/PropertiesPanel';
 
 // Create main layout
 const app = document.createElement('div');
@@ -24,10 +25,15 @@ const editorContainer = document.createElement('div');
 editorContainer.id = 'editor';
 mainContent.appendChild(editorContainer);
 
-// Create viewer container
+// Create viewer container first
 const viewerContainer = document.createElement('div');
 viewerContainer.id = 'viewer';
 mainContent.appendChild(viewerContainer);
+
+// Create properties panel container and add it to viewer
+const propertiesContainer = document.createElement('div');
+propertiesContainer.id = 'properties-panel';
+viewerContainer.appendChild(propertiesContainer);
 
 // Initialize store
 const store = new ProjectStore();
@@ -40,6 +46,12 @@ const toolbar = new Toolbar('toolbar', (tool: ToolType) => {
     console.log('Selected tool:', tool);
     canvas2D.setTool(tool);
     editorContainer.setAttribute('data-tool', tool);
+    propertiesPanel.updateForTool(tool);
+});
+
+// Initialize properties panel AFTER containers are added to DOM
+const propertiesPanel = new PropertiesPanel('properties-panel', (props: WallProperties) => {
+    canvas2D.updateWallProperties(props);
 });
 
 // Initialize 3D viewer after 2D canvas
@@ -51,6 +63,12 @@ toolbar.selectTool(ToolType.WALL);
 // Add styles
 const style = document.createElement('style');
 style.textContent = `
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
     #app {
         width: 100vw;
         height: 100vh;
@@ -66,6 +84,7 @@ style.textContent = `
         overflow: hidden;
         gap: 1px;
         background: #ccc;
+        height: calc(100vh - 1px);
     }
 
     #toolbar {
@@ -90,24 +109,23 @@ style.textContent = `
         flex-direction: column;
     }
 
-    #editor::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 40px;
-        background: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(255,255,255,0));
-        pointer-events: none;
-        z-index: 1;
-    }
-
     #viewer {
         flex: 1;
         overflow: hidden;
         position: relative;
         min-width: 0;
         background: #f0f0f0;
+    }
+
+    #properties-panel {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        z-index: 100;
+        min-width: 200px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 
     .konvajs-content {
