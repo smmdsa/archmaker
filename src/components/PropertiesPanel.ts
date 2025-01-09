@@ -1,4 +1,5 @@
-import { ToolType } from './Toolbar';
+import { EventBus } from '../core/events/EventBus';
+import { ToolService } from '../core/tools/services/ToolService';
 
 export interface WallProperties {
     height: number;  // altura en centímetros
@@ -11,18 +12,41 @@ export class PropertiesPanel {
         height: 240,  // 2.4 metros por defecto
         thickness: 15  // 15 cm por defecto
     };
-    private onPropertiesChange: (props: WallProperties) => void;
+    private eventBus: EventBus;
+    private toolService: ToolService;
 
     constructor(containerId: string, onPropertiesChange: (props: WallProperties) => void) {
         const container = document.getElementById(containerId);
         if (!container) throw new Error('Properties panel container not found');
         this.container = container;
-        this.onPropertiesChange = onPropertiesChange;
+        
+        this.eventBus = EventBus.getInstance();
+        this.toolService = ToolService.getInstance();
+
+        // Suscribirse a los eventos de cambio de propiedades
+        this.eventBus.subscribe('wall:properties-updated', onPropertiesChange);
+        
         this.createPanel();
+        this.setupEventListeners();
     }
 
-    public updateForTool(tool: ToolType): void {
-        this.container.style.display = tool === ToolType.WALL ? 'block' : 'none';
+    private setupEventListeners(): void {
+        // Escuchar cambios de herramienta activa a través del sistema de eventos
+        this.eventBus.subscribe('tool:activated', (tool) => {
+            if (!tool || !tool.id) {
+                console.warn('Received invalid tool data in tool:activated event');
+                this.container.style.display = 'none';
+                return;
+            }
+
+            // Mostrar el panel solo si la herramienta activa es WallTool
+            this.container.style.display = tool.id.startsWith('wall:') ? 'block' : 'none';
+        });
+
+        // Escuchar actualizaciones de propiedades
+        this.eventBus.subscribe('wall:properties-changed', (properties: WallProperties) => {
+            this.updateProperties(properties);
+        });
     }
 
     private createPanel(): void {
@@ -127,7 +151,7 @@ export class PropertiesPanel {
                 height: parseInt(heightInput.value),
                 thickness: parseInt(thicknessInput.value)
             };
-            this.onPropertiesChange(this.currentProperties);
+            this.eventBus.emit('wall:properties-updated', this.currentProperties);
         };
 
         heightInput.addEventListener('change', () => {
@@ -143,7 +167,29 @@ export class PropertiesPanel {
         thicknessInput.addEventListener('change', updateProperties);
     }
 
+    private updateProperties(props: WallProperties): void {
+        this.currentProperties = { ...props };
+        
+        // Actualizar inputs
+        const heightInput = this.container.querySelector('input[type="number"]') as HTMLInputElement;
+        const heightSlider = this.container.querySelector('input[type="range"]') as HTMLInputElement;
+        const thicknessInput = this.container.querySelectorAll('input[type="number"]')[1] as HTMLInputElement;
+
+        if (heightInput && heightSlider && thicknessInput) {
+            heightInput.value = props.height.toString();
+            heightSlider.value = props.height.toString();
+            thicknessInput.value = props.thickness.toString();
+        }
+    }
+
     public getCurrentProperties(): WallProperties {
         return { ...this.currentProperties };
+    }
+
+    public dispose(): void {
+        // Limpiar event listeners
+        this.eventBus.unsubscribe('tool:activated');
+        this.eventBus.unsubscribe('wall:properties-changed');
+        this.eventBus.unsubscribe('wall:properties-updated');
     }
 } 

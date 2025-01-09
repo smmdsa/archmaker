@@ -282,4 +282,28 @@ export class Viewer3D {
         ground.receiveShadow = true;
         this.scene.add(ground);
     }
+
+    public dispose(): void {
+        // Limpiar recursos de Three.js
+        this.scene.traverse((object) => {
+            if (object instanceof THREE.Mesh) {
+                object.geometry.dispose();
+                if (object.material instanceof THREE.Material) {
+                    object.material.dispose();
+                } else if (Array.isArray(object.material)) {
+                    object.material.forEach(material => material.dispose());
+                }
+            }
+        });
+
+        // Detener el renderizado
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer.forceContextLoss();
+            this.renderer.domElement.remove();
+        }
+
+        // Limpiar event listeners
+        window.removeEventListener('resize', this.handleResize.bind(this));
+    }
 } 

@@ -1,116 +1,100 @@
-export enum ToolType {
-    WALL = 'wall',
-    DOOR = 'door',
-    WINDOW = 'window',
-    SELECT = 'select',
-    MOVE = 'move'
-}
-
-const TOOL_ICONS: Record<ToolType, string> = {
-    [ToolType.WALL]: '🧱',
-    [ToolType.DOOR]: '🚪',
-    [ToolType.WINDOW]: '⬜',
-    [ToolType.SELECT]: '👆',
-    [ToolType.MOVE]: '✋'
-};
+import { ToolService } from '../core/tools/services/ToolService';
+import { ITool } from '../core/tools/interfaces/ITool';
+import { EventBus } from '../core/events/EventBus';
 
 export class Toolbar {
     private container: HTMLElement;
-    private currentTool: ToolType = ToolType.SELECT;
-    private onToolChange: (tool: ToolType) => void;
+    private toolService: ToolService;
+    private eventBus: EventBus;
+    private buttons: Map<string, HTMLButtonElement> = new Map();
+    private unsubscribeFunctions: (() => void)[] = [];
 
-    constructor(containerId: string, onToolChange: (tool: ToolType) => void) {
+    constructor(containerId: string) {
         const container = document.getElementById(containerId);
         if (!container) throw new Error('Toolbar container not found');
         this.container = container;
-        this.onToolChange = onToolChange;
+        
+        this.toolService = ToolService.getInstance();
+        this.eventBus = EventBus.getInstance();
         this.createToolbar();
+        this.setupEventListeners();
     }
 
     private createToolbar(): void {
+        this.container.innerHTML = '';
         this.container.className = 'toolbar';
-        Object.values(ToolType).forEach(tool => {
-            const button = document.createElement('button');
-            button.innerHTML = `${TOOL_ICONS[tool]}<span class="tooltip">${tool}</span>`;
-            button.className = `tool-button ${tool === this.currentTool ? 'active' : ''}`;
-            button.dataset.tool = tool;
-            button.addEventListener('click', () => this.selectTool(tool));
+
+        // Obtener todas las herramientas disponibles
+        const tools = this.toolService.getAvailableTools();
+        
+        // Crear botones para cada herramienta
+        tools.forEach(tool => {
+            const button = this.createToolButton(tool);
+            this.buttons.set(tool.id, button);
             this.container.appendChild(button);
         });
-
-        // Add basic styles
-        const style = document.createElement('style');
-        style.textContent = `
-            .toolbar {
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                padding: 8px;
-                background: #ffffff;
-                box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-            }
-
-            .tool-button {
-                width: 40px;
-                height: 40px;
-                padding: 8px;
-                border: none;
-                border-radius: 8px;
-                background: #ffffff;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                position: relative;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 20px;
-            }
-
-            .tool-button:hover {
-                background: #f0f0f0;
-            }
-
-            .tool-button.active {
-                background: #007bff;
-                color: white;
-            }
-
-            .tool-button .tooltip {
-                position: absolute;
-                left: 100%;
-                top: 50%;
-                transform: translateY(-50%);
-                background: #333;
-                color: white;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                white-space: nowrap;
-                opacity: 0;
-                pointer-events: none;
-                transition: opacity 0.2s ease;
-                margin-left: 8px;
-            }
-
-            .tool-button:hover .tooltip {
-                opacity: 1;
-            }
-        `;
-        document.head.appendChild(style);
     }
 
-    public selectTool(tool: ToolType): void {
-        this.currentTool = tool;
-        this.onToolChange(tool);
-        
-        // Update button styles
-        const buttons = this.container.getElementsByClassName('tool-button');
-        Array.from(buttons).forEach(button => {
-            button.classList.toggle('active', button.dataset.tool === tool);
+    private setupEventListeners(): void {
+        // Escuchar actualizaciones de herramientas
+        const unsubTools = this.eventBus.subscribe('tools:updated', (tools: ITool[]) => {
+            this.updateToolbar(tools);
+        });
+        this.unsubscribeFunctions.push(unsubTools);
+
+        // Escuchar cambios de herramienta activa
+        const unsubActiveTool = this.eventBus.subscribe('tool:activated', (tool: ITool) => {
+            this.updateActiveButton(tool.id);
+        });
+        this.unsubscribeFunctions.push(unsubActiveTool);
+    }
+
+    private updateToolbar(tools: ITool[]): void {
+        // Limpiar botones existentes
+        this.buttons.clear();
+        this.container.innerHTML = '';
+
+        // Crear nuevos botones
+        tools.forEach(tool => {
+            const button = this.createToolButton(tool);
+            this.buttons.set(tool.id, button);
+            this.container.appendChild(button);
         });
     }
 
-    public getCurrentTool(): ToolType {
-        return this.currentTool;
+    private updateActiveButton(activeToolId: string): void {
+        // Desactivar todos los botones
+        this.buttons.forEach(button => {
+            button.classList.remove('active');
+        });
+
+        // Activar el botón de la herramienta actual
+        const activeButton = this.buttons.get(activeToolId);
+        if (activeButton) {
+            activeButton.classList.add('active');
+        }
+    }
+
+    private createToolButton(tool: ITool): HTMLButtonElement {
+        const button = document.createElement('button');
+        button.className = 'toolbar-button';
+        button.innerHTML = tool.icon || '';
+        button.title = `${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ''}`;
+        
+        button.addEventListener('click', () => {
+            this.toolService.activateTool(tool.id);
+        });
+
+        return button;
+    }
+
+    public dispose(): void {
+        // Limpiar event listeners
+        this.unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+        this.unsubscribeFunctions = [];
+        
+        // Limpiar botones
+        this.buttons.clear();
+        this.container.innerHTML = '';
     }
 } 
