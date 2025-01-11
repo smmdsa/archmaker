@@ -97,46 +97,40 @@ export class WallToolCore {
 
     // Helper methods
     private getMousePosition(e: KonvaEventObject<MouseEvent>): Vector2 {
+        let x = 0;
+        let y = 0;
+
         try {
+            // First try to get stage pointer position
             const stage = e.target.getStage();
-            if (!stage) {
-                console.warn('No stage available, using event coordinates');
-                // Try to get coordinates from the event itself
-                return new Vector2(
-                    Math.round(e.evt.clientX || 0),
-                    Math.round(e.evt.clientY || 0)
-                );
-            }
-            
-            const point = stage.getPointerPosition();
-            if (!point) {
-                console.warn('No pointer position, using event coordinates');
-                return new Vector2(
-                    Math.round(e.evt.clientX || 0),
-                    Math.round(e.evt.clientY || 0)
-                );
+            if (stage) {
+                const point = stage.getPointerPosition();
+                if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+                    x = point.x;
+                    y = point.y;
+                }
             }
 
-            // Ensure coordinates are valid numbers
-            let x = Number(point.x);
-            let y = Number(point.y);
-
-            // If we got NaN, try to get coordinates from the event
-            if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                console.warn('Invalid stage coordinates, using event coordinates');
-                x = Number(e.evt.clientX || 0);
-                y = Number(e.evt.clientY || 0);
+            // If stage coordinates are not available, fall back to event coordinates
+            if (x === 0 && y === 0 && e.evt) {
+                const rect = (e.evt.target as HTMLElement)?.getBoundingClientRect?.();
+                if (rect) {
+                    x = e.evt.clientX - rect.left;
+                    y = e.evt.clientY - rect.top;
+                } else {
+                    x = e.evt.clientX || 0;
+                    y = e.evt.clientY || 0;
+                }
             }
-
-            // Final validation and rounding
-            x = Number.isFinite(x) ? Math.round(x) : 0;
-            y = Number.isFinite(y) ? Math.round(y) : 0;
-
-            return new Vector2(x, y);
         } catch (error) {
-            console.error('Error getting mouse position:', error);
-            return new Vector2(0, 0);
+            console.warn('Error getting mouse position, using fallback coordinates');
         }
+
+        // Ensure final coordinates are valid numbers
+        x = Number.isFinite(x) ? Math.round(x) : 0;
+        y = Number.isFinite(y) ? Math.round(y) : 0;
+
+        return new Vector2(x, y);
     }
 
     // Drawing methods
@@ -191,7 +185,7 @@ export class WallToolCore {
                 node.getConnectedWalls().forEach(wall => {
                     const wallShape = this.wallShapes.get(wall.getId());
                     if (wallShape) {
-                        WallRenderer.updateWallLine(wallShape, wall);
+                        WallRenderer.updateWallLine(wallShape, wall as Wall);
                     }
                 });
             });
