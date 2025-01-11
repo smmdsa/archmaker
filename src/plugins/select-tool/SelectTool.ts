@@ -1,81 +1,63 @@
 import { BaseTool } from '../../core/tools/BaseTool';
-import { IToolContext } from '../../core/tools/interfaces/ITool';
-import { IPlugin } from '../../core/interfaces/IPlugin';
-import { ToolService } from '../../core/tools/services/ToolService';
+import type { IEventManager } from '../../core/interfaces/IEventManager';
+import type { ILogger } from '../../core/interfaces/ILogger';
+import type { IConfigManager } from '../../core/interfaces/IConfig';
+import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
+import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
+import { UIComponentManifest } from '../../core/interfaces/IUIRegion';
+import { ProjectStore } from '../../store/ProjectStore';
 
-export class SelectTool extends BaseTool implements IPlugin {
-    private selectedElementId: string | null = null;
+const toolManifest = {
+    id: 'select-tool',
+    name: 'Select Tool',
+    version: '1.0.0',
+    icon: '🔍',
+    tooltip: 'Select objects',
+    section: 'edit',
+    order: 1,
+    shortcut: 's'
+};
 
-    constructor() {
-        super(
-            'select:default',
-            'Select',
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="none" d="M0 0h24v24H0z"/><path d="M13.293 6.293L7.586 12l5.707 5.707 1.414-1.414L10.414 12l4.293-4.293z"/></svg>'
-        );
+@ToolPlugin({
+    id: 'select-tool',
+    name: 'Select Tool',
+    version: '1.0.0',
+    description: 'Tool for selecting and editing objects',
+    icon: '🔍',
+    tooltip: 'Select objects',
+    section: 'edit',
+    order: 1,
+    shortcut: 's'
+})
+export class SelectTool extends BaseTool {
+    protected readonly store: ProjectStore;
+
+    constructor(
+        eventManager: IEventManager,
+        logger: ILogger,
+        configManager: IConfigManager,
+        store: ProjectStore
+    ) {
+        super(eventManager, logger, 'select-tool', toolManifest);
+        this.store = store;
     }
 
-    // Implementación de IPlugin
-    initialize(): void {
-        // Registrar la herramienta en el servicio
-        ToolService.getInstance().registerTool(this);
+    async onCanvasEvent(event: CanvasEvent): Promise<void> {
+        // TODO: Implement selection logic
+        this.logger.debug('Select tool received canvas event:', event);
     }
 
-    dispose(): void {
-        // Limpiar recursos y desregistrar la herramienta
-        ToolService.getInstance().unregisterTool(this.id);
-        super.dispose();
-    }
-
-    // Implementación de eventos de herramienta
-    onMouseDown(context: IToolContext): void {
-        this.emitEvent('selection-start', {
-            position: context.canvasPosition
-        });
-    }
-
-    onMouseUp(context: IToolContext): void {
-        this.emitEvent('selection-end', {
-            position: context.canvasPosition
-        });
-    }
-
-    protected onActivate(): void {
-        this.emitEvent('activated');
-    }
-
-    protected onDeactivate(): void {
-        if (this.selectedElementId) {
-            this.emitEvent('selection-clear', {
-                previousSelection: this.selectedElementId
-            });
-            this.selectedElementId = null;
-        }
-        this.emitEvent('deactivated');
-    }
-
-    // Métodos específicos de la herramienta
-    setSelectedElement(elementId: string): void {
-        const previousSelection = this.selectedElementId;
-        this.selectedElementId = elementId;
-        
-        this.emitEvent('selection-changed', {
-            previous: previousSelection,
-            current: elementId
-        });
-    }
-
-    clearSelection(): void {
-        if (this.selectedElementId) {
-            const previousSelection = this.selectedElementId;
-            this.selectedElementId = null;
-            
-            this.emitEvent('selection-clear', {
-                previousSelection
-            });
-        }
-    }
-
-    getSelectedElement(): string | null {
-        return this.selectedElementId;
+    getUIComponents(): UIComponentManifest[] {
+        return [{
+            id: 'select-tool-button',
+            region: 'toolbar',
+            order: 1,
+            template: `
+                <button class="toolbar-button" title="${toolManifest.tooltip} (${toolManifest.shortcut?.toUpperCase()})">${toolManifest.icon}</button>
+            `,
+            events: {
+                click: () => this.activate()
+            }
+        }];
     }
 } 

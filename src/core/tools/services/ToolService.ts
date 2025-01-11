@@ -1,152 +1,212 @@
-import { ITool, IToolContext } from '../interfaces/ITool';
-import { ToolRepository } from '../repositories/ToolRepository';
-import { EventBus } from '../../events/EventBus';
+import { ILogger } from '../../interfaces/ILogger';
+import { IEventManager } from '../../interfaces/IEventManager';
+import { IPlugin } from '../../interfaces/IPlugin';
+import { CanvasEvent } from '../interfaces/ITool';
+import { BaseTool } from '../BaseTool';
 
 export class ToolService {
-    private static instance: ToolService;
-    private repository: ToolRepository;
-    private eventBus: EventBus;
+    private tools: Map<string, BaseTool> = new Map();
+    private activeTool: BaseTool | null = null;
+    private initialized: boolean = false;
 
-    private constructor() {
-        this.repository = ToolRepository.getInstance();
-        this.eventBus = EventBus.getInstance();
-        this.setupEventListeners();
-        this.setupKeyboardShortcuts();
-    }
+    constructor(
+        private readonly eventManager: IEventManager,
+        private readonly logger: ILogger
+    ) {}
 
-    static getInstance(): ToolService {
-        if (!ToolService.instance) {
-            ToolService.instance = new ToolService();
-        }
-        return ToolService.instance;
-    }
-
-    private setupEventListeners(): void {
-        // Suscribirse a eventos relevantes del sistema
-        this.eventBus.subscribe('canvas:update', () => {
-            const activeTool = this.repository.getActiveTool();
-            if (activeTool?.onCanvasUpdate) {
-                activeTool.onCanvasUpdate();
-            }
-        });
-
-        this.eventBus.subscribe('properties:change', (data) => {
-            const activeTool = this.repository.getActiveTool();
-            if (activeTool?.onPropertiesChange) {
-                activeTool.onPropertiesChange(data);
-            }
-        });
-    }
-
-    private setupKeyboardShortcuts(): void {
-        window.addEventListener('keydown', (event) => {
-            // Ignorar si hay algún elemento de entrada enfocado
-            if (event.target instanceof HTMLInputElement || 
-                event.target instanceof HTMLTextAreaElement) {
-                return;
-            }
-
-            // Obtener todas las herramientas
-            const tools = this.repository.getAllTools();
-            
-            // Buscar una herramienta que coincida con la tecla presionada
-            const tool = tools.find(t => 
-                t.shortcut && 
-                t.shortcut.toLowerCase() === event.key.toLowerCase() && 
-                !event.ctrlKey && 
-                !event.altKey && 
-                !event.metaKey
-            );
-
-            if (tool) {
-                console.log(`🎯 Keyboard shortcut pressed: ${event.key} for tool: ${tool.id}`);
-                this.activateTool(tool.id);
-                event.preventDefault();
-            }
-        });
-    }
-
-    registerTool(tool: ITool): void {
-        this.repository.registerTool(tool);
-        this.eventBus.emit('tools:updated', this.getAvailableTools());
-    }
-
-    unregisterTool(toolId: string): void {
-        this.repository.unregisterTool(toolId);
-        this.eventBus.emit('tools:updated', this.getAvailableTools());
-    }
-
-    activateTool(toolId: string): void {
-        const tool = this.repository.getTool(toolId);
-        if (!tool) {
-            console.warn(`Tool with id ${toolId} not found`);
+    async initialize(): Promise<void> {
+        if (this.initialized) {
+            this.logger.warn('ToolService already initialized');
             return;
         }
 
-        console.log('🔧 Attempting to activate tool:', toolId);
+        try {
+            // Subscribe to canvas events
+            this.eventManager.on<CanvasEvent>('canvas:event', async (event) => {
+                if (this.activeTool) {
+                    try {
+                        await this.activeTool.onCanvasEvent(event);
+                    } catch (error) {
+                        this.logger.error('Error in canvas event handler', error as Error);
+                    }
+                }
+            });
 
-        const currentTool = this.repository.getActiveTool();
-        if (currentTool && currentTool.id !== toolId) {
-            console.log('🔄 Deactivating current tool:', currentTool.id);
-            currentTool.deactivate();
-        }
+            // Subscribe to tool activation events
+            this.eventManager.on<{ toolId: string }>('tool:activate', async ({ toolId }) => {
+                await this.activateTool(toolId);
+            });
 
-        if (!tool.isActive()) {
-            console.log('✨ Activating tool:', toolId);
-            tool.activate();
-            this.repository.setActiveTool(toolId);
-        } else {
-            console.log('ℹ️ Tool already active:', toolId);
-        }
-    }
+            // Subscribe to keyboard shortcuts
+            window.addEventListener('keydown', (e) => {
+                if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+                    return;
+                }
 
-    getActiveTool(): ITool | null {
-        return this.repository.getActiveTool();
-    }
+                const tool = Array.from(this.tools.values()).find(t => 
+                    t.manifest.shortcut && t.manifest.shortcut.toLowerCase() === e.key.toLowerCase()
+                );
 
-    getAvailableTools(): ITool[] {
-        return this.repository.getAllTools();
-    }
+                if (tool) {
+                    this.activateTool(tool.manifest.id);
+                    e.preventDefault();
+                }
+            });
 
-    // Métodos para manejar eventos del canvas
-    handleMouseDown(context: IToolContext): void {
-        const activeTool = this.repository.getActiveTool();
-        if (activeTool?.onMouseDown) {
-            activeTool.onMouseDown(context);
-        }
-    }
-
-    handleMouseMove(context: IToolContext): void {
-        const activeTool = this.repository.getActiveTool();
-        if (activeTool?.onMouseMove) {
-            activeTool.onMouseMove(context);
-        }
-    }
-
-    handleMouseUp(context: IToolContext): void {
-        const activeTool = this.repository.getActiveTool();
-        if (activeTool?.onMouseUp) {
-            activeTool.onMouseUp(context);
+            this.initialized = true;
+            this.logger.info('ToolService initialized');
+        } catch (error) {
+            this.logger.error('Failed to initialize ToolService', error as Error);
+            throw error;
         }
     }
 
-    handleKeyDown(event: KeyboardEvent): void {
-        const activeTool = this.repository.getActiveTool();
-        if (activeTool?.onKeyDown) {
-            activeTool.onKeyDown(event);
+    registerPlugin(plugin: IPlugin): void {
+        if (!this.initialized) {
+            throw new Error('ToolService not initialized');
+        }
+
+        if (!(plugin instanceof BaseTool)) {
+            return;
+        }
+
+        const tool = plugin as BaseTool;
+        this.tools.set(tool.manifest.id, tool);
+
+        // Log registration with tool details
+        this.logger.info(`Tool registered: ${tool.manifest.id}`, {
+            name: tool.manifest.name,
+            shortcut: tool.manifest.shortcut,
+            section: tool.manifest.section,
+            order: tool.manifest.order
+        });
+
+        // Emit tool registration event
+        this.eventManager.emit('tool:registered', {
+            toolId: tool.manifest.id,
+            metadata: tool.manifest
+        });
+    }
+
+    unregisterPlugin(pluginId: string): void {
+        if (!this.initialized) {
+            throw new Error('ToolService not initialized');
+        }
+
+        const tool = this.tools.get(pluginId);
+        if (!tool) return;
+
+        if (this.activeTool?.manifest.id === pluginId) {
+            this.activeTool.deactivate().catch(error => {
+                this.logger.error(`Failed to deactivate tool ${pluginId}`, error as Error);
+            });
+            this.activeTool = null;
+        }
+
+        this.tools.delete(pluginId);
+        this.logger.info(`Tool unregistered: ${pluginId}`);
+
+        // Emit tool unregistration event
+        this.eventManager.emit('tool:unregistered', { toolId: pluginId });
+    }
+
+    async activateTool(toolId: string): Promise<void> {
+        if (!this.initialized) {
+            throw new Error('ToolService not initialized');
+        }
+
+        try {
+            // Deactivate current tool if different
+            if (this.activeTool && this.activeTool.manifest.id !== toolId) {
+                await this.activeTool.deactivate();
+                this.activeTool = null;
+            }
+
+            // Activate new tool
+            const tool = this.tools.get(toolId);
+            if (tool && (!this.activeTool || this.activeTool.manifest.id !== toolId)) {
+                await tool.activate();
+                this.activeTool = tool;
+                
+                // Emit tool activation event
+                await this.eventManager.emit('tool:activated', {
+                    toolId,
+                    metadata: tool.manifest
+                });
+
+                this.logger.info(`Tool activated: ${toolId}`);
+            }
+        } catch (error) {
+            this.logger.error(`Failed to activate tool ${toolId}`, error as Error);
+            throw error;
         }
     }
 
-    handleKeyUp(event: KeyboardEvent): void {
-        const activeTool = this.repository.getActiveTool();
-        if (activeTool?.onKeyUp) {
-            activeTool.onKeyUp(event);
+    getActiveTool(): BaseTool | null {
+        if (!this.initialized) {
+            throw new Error('ToolService not initialized');
+        }
+        return this.activeTool;
+    }
+
+    getTool(toolId: string): BaseTool | undefined {
+        if (!this.initialized) {
+            throw new Error('ToolService not initialized');
+        }
+        return this.tools.get(toolId);
+    }
+
+    getTools(): BaseTool[] {
+        if (!this.initialized) {
+            throw new Error('ToolService not initialized');
+        }
+        return Array.from(this.tools.values())
+            .sort((a, b) => (a.manifest.order || 0) - (b.manifest.order || 0));
+    }
+
+    getToolsBySection(section: string): BaseTool[] {
+        return this.getTools().filter(tool => tool.manifest.section === section);
+    }
+
+    async dispose(): Promise<void> {
+        if (!this.initialized) {
+            this.logger.warn('ToolService not initialized or already disposed');
+            return;
+        }
+
+        try {
+            // Deactivate current tool
+            if (this.activeTool) {
+                await this.activeTool.deactivate();
+                this.activeTool = null;
+            }
+
+            // Clear all tools
+            this.tools.clear();
+
+            // Remove event listeners
+            window.removeEventListener('keydown', this.handleKeyDown);
+
+            this.initialized = false;
+            this.logger.info('ToolService disposed');
+        } catch (error) {
+            this.logger.error('Failed to dispose ToolService', error as Error);
+            throw error;
         }
     }
 
-    // Cleanup
-    dispose(): void {
-        this.repository.clear();
-        // Limpiar suscripciones de eventos si es necesario
-    }
+    private handleKeyDown = (e: KeyboardEvent) => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+            return;
+        }
+
+        const tool = Array.from(this.tools.values()).find(t => 
+            t.manifest.shortcut && t.manifest.shortcut.toLowerCase() === e.key.toLowerCase()
+        );
+
+        if (tool) {
+            this.activateTool(tool.manifest.id);
+            e.preventDefault();
+        }
+    };
 } 

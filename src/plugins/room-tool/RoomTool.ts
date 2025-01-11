@@ -1,180 +1,128 @@
-import { BaseTool } from '../../core/tools/BaseTool';
-import { IToolContext } from '../../core/tools/interfaces/ITool';
-import { IPlugin } from '../../core/interfaces/IPlugin';
-import { Point } from '../../store/ProjectStore';
+import { DrawingTool } from '../../core/tools/DrawingTool';
+import type { IEventManager } from '../../core/interfaces/IEventManager';
+import type { ILogger } from '../../core/interfaces/ILogger';
+import type { IConfigManager } from '../../core/interfaces/IConfig';
+import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
+import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
+import { UIComponentManifest } from '../../core/interfaces/IUIRegion';
 import { RoomService } from './services/RoomService';
-import { RoomDrawingState } from './interfaces/IRoom';
-import { RoomRenderer } from './renderers/RoomRenderer';
-import { ToolService } from '../../core/tools/services/ToolService';
+import { RoomStoreAdapter } from './services/RoomStoreAdapter';
+import { Point } from '../../core/types/geometry';
+import { ProjectStore } from '../../store/ProjectStore';
 
-export class RoomTool extends BaseTool implements IPlugin {
-    private drawingState: RoomDrawingState | null = null;
-    private roomService: RoomService;
-    private roomRenderer: RoomRenderer;
-    private readonly SNAP_THRESHOLD = 20; // pixels
-    private readonly DEFAULT_WALL_THICKNESS = 20;
-    private readonly DEFAULT_WALL_HEIGHT = 280;
+const toolManifest = {
+    id: 'room-tool',
+    name: 'Room Tool',
+    version: '1.0.0',
+    icon: '🏠',
+    tooltip: 'Draw rooms',
+    section: 'draw',
+    order: 2,
+    shortcut: 'r'
+};
 
-    readonly manifest = {
-        id: 'room:default',
-        name: 'Room Tool',
-        version: '1.0.0',
-        description: 'Tool for creating rooms with four walls',
-        dependencies: ['wall:default']
-    };
+@ToolPlugin({
+    id: 'room-tool',
+    name: 'Room Tool',
+    version: '1.0.0',
+    description: 'Tool for drawing rooms',
+    icon: '🏠',
+    tooltip: 'Draw rooms',
+    section: 'draw',
+    order: 2,
+    shortcut: 'r'
+})
+export class RoomTool extends DrawingTool {
+    private readonly roomService: RoomService;
+    protected readonly store: ProjectStore;
+    private points: Point[] = [];
 
-    constructor() {
-        super(
-            'room:default',
-            'Room',
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M10 13H3v-2h7V4h2v7h7v2h-7v7h-2v-7z"/></svg>',
-            'room',
-            'R'
-        );
-        this.roomService = RoomService.getInstance();
-        this.roomRenderer = new RoomRenderer();
+    constructor(
+        eventManager: IEventManager,
+        logger: ILogger,
+        configManager: IConfigManager,
+        store: ProjectStore
+    ) {
+        super(eventManager, logger, configManager, store, 'room-tool', toolManifest);
+        
+        this.store = store;
+        this.roomService = new RoomService(store, new RoomStoreAdapter(), configManager, eventManager, logger);
     }
 
-    async initialize(): Promise<void> {
-        ToolService.getInstance().registerTool(this);
-        await super.initialize();
-        this.setupEventListeners();
-    }
-
-    private setupEventListeners(): void {
-        this.subscribeToEvent('config-updated', (config) => {
-            this.emitEvent('properties-changed', config);
+    protected async onDrawingStart(point: Point): Promise<void> {
+        this.points = [point];
+        await this.roomService.create({
+            points: this.points,
+            height: this.properties.roomHeight,
+            properties: {
+                material: this.properties.material,
+                color: this.properties.color
+            }
         });
     }
 
-    onMouseDown(context: IToolContext): void {
-        if (!this.isActive()) return;
-
-        const snapPoint = this.roomService.getSnapPoints().find(point => 
-            this.calculateDistance(point, context.canvasPosition) <= this.SNAP_THRESHOLD
-        );
-
-        const startPoint = snapPoint || context.canvasPosition;
-
-        this.drawingState = {
-            isDrawing: true,
-            startPoint,
-            currentPoint: startPoint,
-            snapPoint: snapPoint,
-            previewWalls: []
-        };
-
-        // Limpiar capa temporal y comenzar preview
-        this.roomRenderer.clear(context.layer);
-        console.log('🏠 Started room drawing');
-    }
-
-    onMouseMove(context: IToolContext): void {
-        if (!this.isActive() || !this.drawingState?.isDrawing) return;
-
-        const snapPoint = this.roomService.getSnapPoints().find(point => 
-            this.calculateDistance(point, context.canvasPosition) <= this.SNAP_THRESHOLD
-        );
-
-        const currentPoint = snapPoint || context.canvasPosition;
-        this.drawingState.currentPoint = currentPoint;
-
-        // Limpiar y renderizar preview
-        this.roomRenderer.clear(context.layer);
-        this.roomRenderer.renderPreview(
-            context.layer,
-            this.drawingState.startPoint,
-            currentPoint,
-            {
-                wallThickness: this.DEFAULT_WALL_THICKNESS,
-                showDimensions: true,
-                isPreview: true
-            }
-        );
-    }
-
-    onMouseUp(context: IToolContext): void {
-        if (!this.isActive() || !this.drawingState?.isDrawing) return;
-
-        const snapPoint = this.roomService.getSnapPoints().find(point => 
-            this.calculateDistance(point, context.canvasPosition) <= this.SNAP_THRESHOLD
-        );
-
-        const endPoint = snapPoint || context.canvasPosition;
-        const width = Math.abs(endPoint.x - this.drawingState.startPoint.x);
-        const height = Math.abs(endPoint.y - this.drawingState.startPoint.y);
-
-        // Verificar tamaño mínimo
-        if (width >= 100 && height >= 100) {
-            this.createRoom(
-                this.drawingState.startPoint,
-                width,
-                height,
-                context.mainLayer
-            );
-            console.log(`✅ Room created - ${width/100}m x ${height/100}m`);
-        } else {
-            console.log('⚠️ Room too small - minimum size: 1m x 1m');
-        }
-
-        // Limpiar estado y capa temporal
-        this.roomRenderer.clear(context.layer);
-        this.drawingState = null;
-    }
-
-    onKeyDown(event: KeyboardEvent): void {
-        if (event.key === 'Escape' && this.drawingState?.isDrawing) {
-            this.cancelDrawing();
-            console.log('🚫 Room drawing cancelled');
-        }
-    }
-
-    private async createRoom(startPoint: Point, width: number, height: number, layer: Konva.Layer): Promise<void> {
-        try {
-            const room = await this.roomService.createRoom(
-                startPoint,
-                width,
-                height,
-                {
-                    wallThickness: this.DEFAULT_WALL_THICKNESS,
-                    wallHeight: this.DEFAULT_WALL_HEIGHT,
-                    name: `Room ${Date.now()}`
-                }
-            );
-
-            // Renderizar la habitación en la capa principal
-            this.roomRenderer.renderRoom(layer, room, {
-                showDimensions: true
+    protected async onDrawingUpdate(point: Point): Promise<void> {
+        const rooms = this.roomService.getAll();
+        if (rooms.length > 0) {
+            const lastRoom = rooms[rooms.length - 1];
+            this.points.push(point);
+            await this.roomService.update(lastRoom.id, {
+                points: [...this.points]
             });
-
-            this.emitEvent('room-created', room);
-        } catch (error) {
-            console.error('❌ Error creating room:', error);
-            this.emitEvent('room-creation-error', error);
         }
     }
 
-    private cancelDrawing(): void {
-        if (this.drawingState) {
-            this.drawingState = null;
-            this.emitEvent('drawing-cancel');
+    protected async onDrawingFinish(point: Point): Promise<void> {
+        const rooms = this.roomService.getAll();
+        if (rooms.length > 0) {
+            const lastRoom = rooms[rooms.length - 1];
+            this.points.push(point);
+            await this.roomService.update(lastRoom.id, {
+                points: [...this.points]
+            });
+            this.points = [];
         }
     }
 
-    private calculateDistance(p1: Point, p2: Point): number {
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        return Math.sqrt(dx * dx + dy * dy);
+    protected clearPreview(): void {
+        if (this.currentLayer) {
+            this.currentLayer.batchDraw();
+        }
     }
 
-    protected async onActivate(): Promise<void> {
-        console.log('🏠 Room Tool activated - Click and drag to create a room');
-        await super.onActivate();
+    async onCanvasEvent(event: CanvasEvent): Promise<void> {
+        if (event.type === 'mousemove' && !event.position) return;
+
+        switch (event.type) {
+            case 'mousedown':
+                if (event.position) {
+                    await this.startDrawing(event.position);
+                }
+                break;
+            case 'mousemove':
+                if (event.position) {
+                    await this.updateDrawing(event.position);
+                }
+                break;
+            case 'mouseup':
+                if (event.position) {
+                    await this.finishDrawing(event.position);
+                }
+                break;
+        }
     }
 
-    protected async onDeactivate(): Promise<void> {
-        console.log('🏠 Room Tool deactivated');
-        this.cancelDrawing();
-        await super.onDeactivate();
+    getUIComponents(): UIComponentManifest[] {
+        return [{
+            id: 'room-tool-button',
+            region: 'toolbar',
+            order: 2,
+            template: `
+                <button class="toolbar-button" title="${toolManifest.tooltip} (${toolManifest.shortcut?.toUpperCase()})">${toolManifest.icon}</button>
+            `,
+            events: {
+                click: () => this.activate()
+            }
+        }];
     }
 } 

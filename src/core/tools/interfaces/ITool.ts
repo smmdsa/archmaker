@@ -1,49 +1,38 @@
+import { IPlugin } from '../../interfaces/IPlugin';
+import { Point } from '../../types/geometry';
 import Konva from 'konva';
-import { Point } from '../../../store/ProjectStore';
 
-/**
- * Contexto proporcionado a las herramientas durante eventos del canvas
- */
-export interface IToolContext {
-    canvasPosition: Point;
-    event: Event;
-    stage: Konva.Stage;
-    layer: Konva.Layer;        // Capa temporal para previsualizaciones
-    mainLayer: Konva.Layer;    // Capa principal para elementos permanentes
+export interface CanvasEvent {
+    type: 'mousedown' | 'mousemove' | 'mouseup' | 'keydown' | 'keyup';
+    position?: Point;
+    originalEvent: Event;
+    canvas: {
+        stage: Konva.Stage;
+        previewLayer: Konva.Layer;
+        mainLayer: Konva.Layer;
+    };
 }
 
-/**
- * Interfaz principal para todas las herramientas en la aplicación.
- * Define el contrato que todas las herramientas deben implementar.
- */
-export interface ITool {
-    // Propiedades de identificación
-    readonly id: string;
-    readonly type: string;
-    readonly name: string;
-    readonly icon: string;
-    readonly shortcut?: string;
+export interface ToolMetadata {
+    name: string;
+    icon: string;
+    tooltip: string;
+    section: string;
+    order: number;
+    shortcut?: string;
+}
 
-    // Lifecycle methods
-    initialize(): void;
-    dispose(): void;
+export interface ITool extends IPlugin {
+    // Metadata
+    readonly metadata: ToolMetadata;
 
-    // Tool state management
-    isActive(): boolean;
-    activate(): Promise<void>;
-    deactivate(): Promise<void>;
-
-    // Event handlers
-    onMouseDown(context: IToolContext): void;
-    onMouseMove(context: IToolContext): void;
-    onMouseUp(context: IToolContext): void;
-    onKeyDown(event: KeyboardEvent): void;
-    onKeyUp(event: KeyboardEvent): void;
-
-    // Properties management
-    getProperties?(): unknown;
-    setProperties?(props: unknown): void;
+    // Canvas interaction
+    onCanvasEvent(event: CanvasEvent): Promise<void>;
     
-    // Event registration
-    registerEventHandlers?(): void;
+    // Tool state
+    isActive(): boolean;
+    
+    // Properties
+    getProperties(): Record<string, unknown>;
+    setProperties(props: Record<string, unknown>): void;
 } 

@@ -1,99 +1,95 @@
-import { ITool, IToolContext } from './interfaces/ITool';
-import { EventBus } from '../events/EventBus';
+import { IPlugin, PluginManifest } from '../interfaces/IPlugin';
+import { IEventManager } from '../interfaces/IEventManager';
+import { ILogger } from '../interfaces/ILogger';
+import { CanvasEvent } from './interfaces/ITool';
+import { UIComponentManifest } from '../interfaces/IUIRegion';
 
-export abstract class BaseTool implements ITool {
-    protected eventBus: EventBus;
-    private _isActive: boolean = false;
-    private unsubscribeFunctions: (() => void)[] = [];
+export interface ToolManifest extends Omit<PluginManifest, 'type'> {
+    icon: string;
+    tooltip: string;
+    section: string;
+    order: number;
+    shortcut?: string;
+}
+
+export abstract class BaseTool implements IPlugin {
+    private active: boolean = false;
+    /**
+     * Manifiesto del plugin
+     */
+    readonly manifest: PluginManifest;
 
     constructor(
-        public readonly id: string,
-        public readonly name: string,
-        public readonly icon: string,
-        public readonly type: string,
-        public readonly shortcut?: string
+        protected readonly eventManager: IEventManager,
+        protected readonly logger: ILogger,
+        id: string,
+        toolManifest: ToolManifest
     ) {
-        this.eventBus = EventBus.getInstance();
+        this.manifest = {
+            ...toolManifest,
+            id,
+            type: 'tool',
+            uiComponents: [
+                {
+                    id: `${id}-button`,
+                    region: 'toolbar',
+                    order: toolManifest.order,
+                    template: `
+                        <div class="tool-button" title="${toolManifest.tooltip} (${toolManifest.shortcut || ''})" data-tool="${id}">
+                            <span class="tool-icon">${toolManifest.icon}</span>
+                        </div>
+                    `,
+                    events: {
+                        click: () => this.activate()
+                    }
+                }
+            ],
+            shortcut: toolManifest.shortcut
+        };
+
     }
 
-    // Lifecycle methods
-    initialize(): void {
-        this.registerEventHandlers?.();
+    async initialize(): Promise<void> {
+        this.logger.info(`Initializing ${this.manifest.name}...`);
+        
+        // Suscribirse a eventos de teclado para atajos
+        if (this.manifest.shortcut) {
+            document.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === this.manifest.shortcut?.toLowerCase()) {
+                    this.activate();
+                }
+            });
+        }
     }
 
-    dispose(): void {
-        // Limpiar todas las suscripciones
-        this.unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-        this.unsubscribeFunctions = [];
+    async dispose(): Promise<void> {
+        this.logger.info(`Disposing ${this.manifest.name}...`);
         this.deactivate();
     }
 
-    // Tool state management
+    getUIComponents(): UIComponentManifest[] {
+        return this.manifest.uiComponents || [];
+    }
+
     isActive(): boolean {
-        return this._isActive;
+        return this.active;
     }
 
     async activate(): Promise<void> {
-        if (this._isActive) {
-            console.log(`Tool ${this.id} is already active`);
-            return;
-        }
+        if (this.active) return;
 
-        this._isActive = true;
-        await this.onActivate();
-        this.eventBus.emit('tool:activated', {
-            id: this.id,
-            name: this.name,
-            icon: this.icon,
-            type: this.type
-        });
+        this.active = true;
+        this.logger.info(`Tool activated: ${this.manifest.id}`);
+        await this.eventManager.emit('tool:activated', { toolId: this.manifest.id });
     }
 
     async deactivate(): Promise<void> {
-        if (!this._isActive) {
-            console.log(`Tool ${this.id} is already inactive`);
-            return;
-        }
+        if (!this.active) return;
 
-        this._isActive = false;
-        await this.onDeactivate();
-        this.eventBus.emit('tool:deactivated', {
-            id: this.id,
-            name: this.name,
-            icon: this.icon,
-            type: this.type
-        });
+        this.active = false;
+        this.logger.info(`Tool deactivated: ${this.manifest.id}`);
+        await this.eventManager.emit('tool:deactivated', { toolId: this.manifest.id });
     }
 
-    // Event handlers (to be implemented by concrete tools)
-    onMouseDown(context: IToolContext): void {}
-    onMouseMove(context: IToolContext): void {}
-    onMouseUp(context: IToolContext): void {}
-    onKeyDown(event: KeyboardEvent): void {}
-    onKeyUp(event: KeyboardEvent): void {}
-
-    // Protected methods for tool-specific logic
-    protected async onActivate(): Promise<void> {}
-    protected async onDeactivate(): Promise<void> {}
-
-    // Optional methods
-    getProperties?(): unknown {
-        return undefined;
-    }
-
-    setProperties?(props: unknown): void {}
-
-    registerEventHandlers?(): void {}
-
-    // Protected methods for event handling
-    protected subscribeToEvent(eventName: string, callback: (data: any) => void): void {
-        const fullEventName = `tool:${this.id}:${eventName}`;
-        const unsubscribe = this.eventBus.subscribe(fullEventName, callback);
-        this.unsubscribeFunctions.push(unsubscribe);
-    }
-
-    protected emitEvent(eventName: string, data?: any): void {
-        const fullEventName = `tool:${this.id}:${eventName}`;
-        this.eventBus.emit(fullEventName, data);
-    }
+    abstract onCanvasEvent(event: CanvasEvent): Promise<void>;
 } 

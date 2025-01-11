@@ -1,45 +1,35 @@
-import { IStoreService } from '../core/interfaces/IStoreService';
+import { IStoreService } from '../core/services/StoreService';
 import { Wall } from './ProjectStore';
 
 export class StoreService implements IStoreService {
-    public readonly id: string = 'store-service';
     private walls: Map<string, Wall> = new Map();
-    private subscribers: Array<() => void> = [];
-    private nextId: number = 1;
+    private subscribers: Set<() => void> = new Set();
 
-    public async initialize(): Promise<void> {
-        // Inicialización asíncrona del servicio si es necesario
-        await Promise.resolve();
+    async initialize(): Promise<void> {
+        // En una implementación real, aquí cargaríamos los datos desde localStorage o el servidor
     }
 
-    public async dispose(): Promise<void> {
-        // Limpieza asíncrona de recursos si es necesario
-        this.subscribers = [];
-        this.walls.clear();
-        await Promise.resolve();
-    }
-
-    public addWall(wall: Omit<Wall, 'id'>): string {
-        const id = `wall_${this.nextId++}`;
+    addWall(wall: Omit<Wall, 'id'>): string {
+        const id = `wall-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         this.walls.set(id, { ...wall, id });
         this.notifySubscribers();
         return id;
     }
 
-    public getWall(id: string): Wall | undefined {
+    getWall(id: string): Wall | undefined {
         return this.walls.get(id);
     }
 
-    public getWalls(): Wall[] {
+    getWalls(): Wall[] {
         return Array.from(this.walls.values());
     }
 
-    public removeWall(id: string): void {
+    removeWall(id: string): void {
         this.walls.delete(id);
         this.notifySubscribers();
     }
 
-    public updateWall(id: string, updates: Partial<Wall>): void {
+    updateWall(id: string, updates: Partial<Wall>): void {
         const wall = this.walls.get(id);
         if (wall) {
             this.walls.set(id, { ...wall, ...updates });
@@ -47,14 +37,9 @@ export class StoreService implements IStoreService {
         }
     }
 
-    public subscribe(callback: () => void): () => void {
-        this.subscribers.push(callback);
-        return () => {
-            const index = this.subscribers.indexOf(callback);
-            if (index > -1) {
-                this.subscribers.splice(index, 1);
-            }
-        };
+    subscribe(callback: () => void): () => void {
+        this.subscribers.add(callback);
+        return () => this.subscribers.delete(callback);
     }
 
     private notifySubscribers(): void {

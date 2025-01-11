@@ -1,102 +1,172 @@
 import './styles/style.css';
 import './styles/toolbar.css';
-import { Canvas2D } from './components/Canvas2D';
-import { ProjectStore } from './store/ProjectStore';
-import { StoreService } from './store/StoreService';
-import { Viewer3D } from './scenes/Viewer3D';
-import { PropertiesPanel } from './components/PropertiesPanel';
+import { LoggerImpl, EventManagerImpl, ConfigManagerImpl } from './core/managers';
 import { ToolService } from './core/tools/services/ToolService';
+import { UIRegionManager } from './core/ui/UIRegionManager';
+import { PluginManager } from './core/managers/PluginManager';
+import { BaseTool } from './core/tools/BaseTool';
+import { pluginRegistry } from './core/plugins/registry';
+import { TopbarService } from './core/topbar/services/TopbarService';
+import { Topbar } from './components/Topbar';
+import { ProjectStore } from './store/ProjectStore';
+import { Canvas2D } from './components/Canvas2D';
+import { StoreService } from './store/StoreService';
+import { DrawingManager } from './core/drawing/DrawingManager';
+
+// Importar plugins (solo para registro)
+// Herramientas
+import { WallTool } from './plugins/wall-tool/WallTool';
+import { RoomTool } from './plugins/room-tool/RoomTool';
 import { SelectTool } from './plugins/select-tool/SelectTool';
 import { MoveTool } from './plugins/move-tool/MoveTool';
-import { WallTool } from './plugins/wall-tool/WallTool';
-import { WallService } from './plugins/wall-tool/services/WallService';
-import { Toolbar } from './components/Toolbar';
-import { RoomTool } from './plugins/room-tool/RoomTool';
 
-// Crear layout principal
-const app = document.createElement('div');
-app.id = 'app';
-document.body.appendChild(app);
+// Servicios y UI
+import { StoragePlugin } from './plugins/storage';
 
-// Crear contenedor principal
-const mainContent = document.createElement('div');
-mainContent.id = 'main-content';
-app.appendChild(mainContent);
-
-// Crear contenedor de la barra de herramientas
-const toolbarContainer = document.createElement('div');
-toolbarContainer.id = 'toolbar';
-mainContent.appendChild(toolbarContainer);
-
-// Crear contenedor del editor
-const editorContainer = document.createElement('div');
-editorContainer.id = 'editor';
-mainContent.appendChild(editorContainer);
-
-// Crear contenedor del panel de propiedades
-const propertiesPanelContainer = document.createElement('div');
-propertiesPanelContainer.id = 'properties-panel';
-mainContent.appendChild(propertiesPanelContainer);
-
-// Crear contenedor del visor 3D
-const viewer3DContainer = document.createElement('div');
-viewer3DContainer.id = 'viewer';
-mainContent.appendChild(viewer3DContainer);
-
-// Inicializar servicios
-const storeService = new StoreService();
-await storeService.initialize();
-const store = new ProjectStore(storeService);
-const toolService = ToolService.getInstance();
-
-// Crear e inicializar herramientas
-const selectTool = new SelectTool();
-const moveTool = new MoveTool();
-const wallTool = new WallTool();
-const roomTool = new RoomTool();
-
-// Inicializar herramientas (esto las registrará automáticamente)
-selectTool.initialize();
-moveTool.initialize();
-wallTool.initialize();
-roomTool.initialize();
-
-// Inicializar componentes
-const canvas2D = new Canvas2D('editor', store);
-const propertiesPanel = new PropertiesPanel('properties-panel', (props) => {
-    // Las propiedades actualizadas se manejarán a través del sistema de eventos
-    console.log('Wall properties updated:', props);
-});
-const viewer3D = new Viewer3D('viewer', store);
-const toolbar = new Toolbar('toolbar');
-
-// Activar herramienta inicial
-toolService.activateTool(selectTool.id);
-
-// Agregar overlay de debug
-const debugOverlay = document.createElement('div');
-debugOverlay.className = 'debug-overlay';
-document.body.appendChild(debugOverlay);
-
-// Manejar eventos de debug
-editorContainer.addEventListener('mousedown', (e) => {
-    debugOverlay.textContent = `Mouse down at: ${e.clientX}, ${e.clientY}`;
+// Verificar que los plugins se hayan importado
+console.info('Plugins loaded:', {
+    WallTool,
+    RoomTool,
+    SelectTool,
+    MoveTool,
+    StoragePlugin
 });
 
-editorContainer.addEventListener('mousemove', (e) => {
-    if (e.buttons === 1) { // Left mouse button is pressed
-        debugOverlay.textContent = `Drawing at: ${e.clientX}, ${e.clientY}`;
+async function initializeApp() {
+    try {
+        // Crear layout principal
+        const app = document.createElement('div');
+        app.id = 'app';
+        document.body.appendChild(app);
+
+        // Crear barra superior
+        const topbar = document.createElement('div');
+        topbar.id = 'topbar';
+        app.appendChild(topbar);
+
+        // Crear contenedor principal
+        const mainContent = document.createElement('div');
+        mainContent.id = 'main-content';
+        app.appendChild(mainContent);
+
+        // Crear contenedor de la barra de herramientas
+        const toolbar = document.createElement('div');
+        toolbar.id = 'toolbar';
+        mainContent.appendChild(toolbar);
+
+        // Crear contenedor del editor
+        const editor = document.createElement('div');
+        editor.id = 'editor';
+        mainContent.appendChild(editor);
+
+        // Crear contenedor del panel de propiedades
+        const propertiesPanel = document.createElement('div');
+        propertiesPanel.id = 'properties-panel';
+        mainContent.appendChild(propertiesPanel);
+
+        // Inicializar servicios core
+        console.info('Initializing core services...');
+        
+        const logger = new LoggerImpl();
+        logger.info('Logger initialized');
+        
+        const eventManager = new EventManagerImpl(logger);
+        logger.info('Event Manager initialized');
+        
+        const configManager = new ConfigManagerImpl(logger);
+        await configManager.initialize();
+        logger.info('Config Manager initialized');
+
+        // Inicializar store
+        logger.info('Initializing store services...');
+        const storeService = new StoreService();
+        await storeService.initialize();
+        const projectStore = new ProjectStore(eventManager, logger, configManager);
+        logger.info('Store services initialized');
+
+        // Inicializar managers
+        logger.info('Initializing managers...');
+        const uiManager = new UIRegionManager(logger, eventManager);
+        const pluginManager = new PluginManager(logger, eventManager, uiManager);
+        const toolService = new ToolService(eventManager, logger);
+        const topbarService = new TopbarService(eventManager, logger, configManager);
+        const drawingManager = new DrawingManager(eventManager, logger);
+        logger.info('Drawing Manager initialized');
+
+        // Inicializar servicios en orden
+        logger.info('Starting service initialization sequence...');
+        await uiManager.initialize();
+        logger.info('UI Manager initialized');
+        await toolService.initialize();
+        logger.info('Tool Service initialized');
+        await pluginManager.initialize();
+        logger.info('Plugin Manager initialized');
+
+        // Registrar listeners para eventos de plugins
+        eventManager.on('plugin:registered', (event) => {
+            logger.info('Plugin registered:', event);
+        });
+
+        eventManager.on('tool:registered', (event) => {
+            logger.info('Tool registered:', event);
+        });
+
+        // Verificar plugins registrados antes de crearlos
+        logger.info('Plugins registered in registry:', pluginRegistry.getAllPlugins().map(p => ({
+            id: p.metadata.id,
+            type: p.metadata.type
+        })));
+
+        // Crear y registrar plugins
+        logger.info('Creating plugins from registry...');
+        const plugins = pluginRegistry.createPlugins(eventManager, logger, configManager, projectStore);
+        logger.info(`Created ${plugins.length} plugins`);
+        
+        for (const plugin of plugins) {
+            logger.info(`Registering plugin: ${plugin.manifest.id}`, {
+                type: plugin.manifest.type,
+                name: plugin.manifest.name,
+                version: plugin.manifest.version
+            });
+            
+            await pluginManager.registerPlugin(plugin);
+            
+            if (plugin instanceof BaseTool) {
+                logger.info(`Registering tool: ${plugin.manifest.id}`);
+                toolService.registerPlugin(plugin);
+            }
+        }
+
+        // Inicializar componente Topbar
+        logger.info('Initializing Topbar component...');
+        new Topbar('topbar', topbarService, eventManager, logger);
+        logger.info('Topbar component initialized');
+
+        // Inicializar Canvas2D
+        logger.info('Initializing Canvas2D component...');
+        new Canvas2D('editor', projectStore, toolService, eventManager, logger, drawingManager);
+        logger.info('Canvas2D component initialized');
+
+        logger.info('Application initialized successfully');
+        
+        // Log final status
+        const registeredPlugins = plugins.length;
+        const registeredTools = plugins.filter(p => p instanceof BaseTool).length;
+        logger.info('Final initialization status:', {
+            totalPlugins: registeredPlugins,
+            tools: registeredTools,
+            services: registeredPlugins - registeredTools
+        });
+        
+    } catch (error) {
+        const logger = new LoggerImpl();
+        logger.error('Failed to initialize application:', error as Error);
+        throw error;
     }
-});
+}
 
-// Cleanup al cerrar
-window.addEventListener('beforeunload', () => {
-    selectTool.dispose();
-    moveTool.dispose();
-    wallTool.dispose();
-    roomTool.dispose();
-    canvas2D.dispose();
-    propertiesPanel.dispose();
-    viewer3D.dispose();
-    toolbar.dispose();
+// Iniciar la aplicación
+initializeApp().catch(error => {
+    const logger = new LoggerImpl();
+    logger.error('Application initialization failed:', error as Error);
 });

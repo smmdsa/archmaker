@@ -1,81 +1,162 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Point } from '../../../store/ProjectStore';
+import { Point } from '../../../core/types/geometry';
 import { IWall } from '../interfaces/IWall';
-import { IWallService, WallCreationParams } from './IWallService';
-import { EventBus } from '../../../core/events/EventBus';
+import { IEventManager } from '../../../core/interfaces/IEventManager';
+import { ILogger } from '../../../core/interfaces/ILogger';
+import { IConfigManager } from '../../../core/interfaces/IConfig';
+import { ProjectStore } from '../../../store/ProjectStore';
+import { WallStoreAdapter } from './WallStoreAdapter';
+import { IDrawingService, DrawingCreationParams } from '../../../core/services/IDrawingService';
 
-export class WallService implements IWallService {
+export class WallService implements IDrawingService<IWall> {
     private walls: Map<string, IWall> = new Map();
-    private eventBus: EventBus;
-    private static instance: WallService;
+    private initialized: boolean = false;
 
-    private constructor() {
-        this.eventBus = EventBus.getInstance();
-    }
+    constructor(
+        private readonly store: ProjectStore,
+        private readonly adapter: WallStoreAdapter,
+        private readonly configManager: IConfigManager,
+        private readonly eventManager: IEventManager,
+        private readonly logger: ILogger
+    ) {}
 
-    static getInstance(): WallService {
-        if (!WallService.instance) {
-            WallService.instance = new WallService();
+    async initialize(): Promise<void> {
+        if (this.initialized) {
+            this.logger.warn('Wall Service already initialized');
+            return;
         }
-        return WallService.instance;
+
+        try {
+            // Load existing walls from store
+            const walls = this.store.getWalls();
+            walls.forEach(wall => {
+                const adaptedWall = this.adapter.fromStore(wall);
+                this.walls.set(adaptedWall.id, adaptedWall);
+            });
+            
+            this.initialized = true;
+            this.logger.info('Wall Service initialized', { wallCount: walls.length });
+        } catch (error) {
+            this.logger.error('Failed to initialize Wall Service', error as Error);
+            throw error;
+        }
     }
 
-    // Wall management
-    async createWall(params: WallCreationParams): Promise<IWall> {
+    async dispose(): Promise<void> {
+        if (!this.initialized) {
+            this.logger.warn('Wall Service not initialized or already disposed');
+            return;
+        }
+
+        try {
+            this.walls.clear();
+            this.initialized = false;
+            this.logger.info('Wall Service disposed');
+        } catch (error) {
+            this.logger.error('Failed to dispose Wall Service', error as Error);
+            throw error;
+        }
+    }
+
+    private ensureInitialized(): void {
+        if (!this.initialized) {
+            throw new Error('Wall Service not initialized');
+        }
+    }
+
+    async create(params: DrawingCreationParams): Promise<IWall> {
+        this.ensureInitialized();
+
         const wall: IWall = {
             id: uuidv4(),
             startPoint: params.startPoint,
             endPoint: params.endPoint,
-            thickness: params.thickness || 20,
-            height: params.height || 280,
+            thickness: params.thickness,
+            height: params.height,
             properties: {
-                ...params.properties,
                 material: params.properties?.material || 'default',
-                color: params.properties?.color || '#cccccc'
+                color: params.properties?.color || '#cccccc',
+                ...params.properties
             }
         };
 
-        this.walls.set(wall.id, wall);
-        this.eventBus.emit('wall:created', wall);
-        return wall;
+        try {
+            this.walls.set(wall.id, wall);
+            const storeWall = this.adapter.toStore(wall);
+            this.store.addWall(storeWall);
+            await this.eventManager.emit('wall:created', { wall });
+            this.logger.info('Wall created', { wallId: wall.id });
+            return wall;
+        } catch (error) {
+            this.logger.error('Failed to create wall', error as Error);
+            // Clean up on error
+            this.walls.delete(wall.id);
+            throw error;
+        }
     }
 
-    async updateWall(wallId: string, updates: Partial<IWall>): Promise<IWall> {
+    async update(wallId: string, updates: Partial<IWall>): Promise<IWall> {
+        this.ensureInitialized();
+
         const wall = this.walls.get(wallId);
         if (!wall) {
             throw new Error(`Wall with id ${wallId} not found`);
         }
 
-        const updatedWall: IWall = {
-            ...wall,
-            ...updates,
-            properties: {
-                ...wall.properties,
-                ...updates.properties
-            }
-        };
+        try {
+            const updatedWall: IWall = {
+                ...wall,
+                ...updates,
+                properties: {
+                    ...wall.properties,
+                    ...updates.properties
+                }
+            };
 
-        this.walls.set(wallId, updatedWall);
-        this.eventBus.emit('wall:updated', updatedWall);
-        return updatedWall;
-    }
-
-    async deleteWall(wallId: string): Promise<void> {
-        if (this.walls.delete(wallId)) {
-            this.eventBus.emit('wall:deleted', wallId);
+            this.walls.set(wallId, updatedWall);
+            const storeUpdates = this.adapter.updateToStore(updates);
+            this.store.updateWall(wallId, storeUpdates);
+            await this.eventManager.emit('wall:updated', { wall: updatedWall });
+            this.logger.info('Wall updated', { wallId });
+            return updatedWall;
+        } catch (error) {
+            this.logger.error('Failed to update wall', error as Error);
+            // Restore previous state on error
+            this.walls.set(wallId, wall);
+            throw error;
         }
     }
 
-    getWall(wallId: string): IWall | undefined {
+    async delete(wallId: string): Promise<void> {
+        this.ensureInitialized();
+
+        if (!this.walls.has(wallId)) {
+            throw new Error(`Wall with id ${wallId} not found`);
+        }
+
+        try {
+            this.walls.delete(wallId);
+            this.store.removeWall(wallId);
+            await this.eventManager.emit('wall:deleted', { wallId });
+            this.logger.info('Wall deleted', { wallId });
+        } catch (error) {
+            this.logger.error('Failed to delete wall', error as Error);
+            throw error;
+        }
+    }
+
+    get(wallId: string): IWall | undefined {
+        this.ensureInitialized();
         return this.walls.get(wallId);
     }
 
-    getAllWalls(): IWall[] {
+    getAll(): IWall[] {
+        this.ensureInitialized();
         return Array.from(this.walls.values());
     }
 
-    // Snapping
     getSnapPoints(): Point[] {
+        this.ensureInitialized();
         const points: Point[] = [];
         this.walls.forEach(wall => {
             points.push(wall.startPoint, wall.endPoint);
@@ -84,6 +165,7 @@ export class WallService implements IWallService {
     }
 
     getNearestSnapPoint(point: Point, threshold: number): Point | null {
+        this.ensureInitialized();
         const snapPoints = this.getSnapPoints();
         let nearestPoint: Point | null = null;
         let minDistance = threshold;
@@ -97,19 +179,6 @@ export class WallService implements IWallService {
         });
 
         return nearestPoint;
-    }
-
-    // Events
-    onWallCreated(callback: (wall: IWall) => void): () => void {
-        return this.eventBus.subscribe('wall:created', callback);
-    }
-
-    onWallUpdated(callback: (wall: IWall) => void): () => void {
-        return this.eventBus.subscribe('wall:updated', callback);
-    }
-
-    onWallDeleted(callback: (wallId: string) => void): () => void {
-        return this.eventBus.subscribe('wall:deleted', callback);
     }
 
     private calculateDistance(p1: Point, p2: Point): number {

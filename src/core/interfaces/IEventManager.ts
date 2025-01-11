@@ -1,12 +1,5 @@
-export type EventCallback = (data?: any) => void | Promise<void>;
-
 export interface IEventManager {
-    id: string;
-    
-    on(event: string, callback: EventCallback): void;
-    off(event: string, callback: EventCallback): void;
-    emit(event: string, data?: any): Promise<void>;
-    
-    getListenerCount(event: string): number;
-    clearAllListeners(): void;
+    on<T = void>(event: string, callback: (data: T) => void): void;
+    off<T = void>(event: string, callback?: (data: T) => void): void;
+    emit<T = void>(event: string, data: any): Promise<T>;
 } 

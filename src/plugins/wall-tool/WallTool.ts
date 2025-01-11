@@ -1,227 +1,325 @@
-import { BaseTool } from '../../core/tools/BaseTool';
-import { IToolContext } from '../../core/tools/interfaces/ITool';
-import { IPlugin } from '../../core/interfaces/IPlugin';
-import { Point } from '../../store/ProjectStore';
-import { WallService } from './services/WallService';
-import { WallDrawingState, IWall } from './interfaces/IWall';
-import { WallRenderer } from './renderers/WallRenderer';
-import { ToolService } from '../../core/tools/services/ToolService';
+import { DrawingTool } from '../../core/tools/DrawingTool';
+import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
+import { WallToolCore } from './core/WallToolCore';
+import { WallToolMode } from './core/WallToolState';
+import { CommandManager } from './commands/CommandManager';
 import { Layer } from 'konva/lib/Layer';
+import { KonvaEventObject } from 'konva/lib/Node';
+import { Point } from '../../core/types/geometry';
+import type { IEventManager } from '../../core/interfaces/IEventManager';
+import type { ILogger } from '../../core/interfaces/ILogger';
+import type { IConfigManager } from '../../core/interfaces/IConfig';
+import { ProjectStore } from '../../store/ProjectStore';
+import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
+import { CreateWallCommand } from './commands/WallCommands';
+import { Vector2 } from 'three';
+import { Stage } from 'konva/lib/Stage';
 
-export class WallTool extends BaseTool implements IPlugin {
-    private drawingState: WallDrawingState | null = null;
-    private wallService: WallService;
-    private wallRenderer: WallRenderer;
-    private readonly SNAP_THRESHOLD = 20; // pixels
-    private readonly DEFAULT_WALL_THICKNESS = 20;
-    private readonly DEFAULT_WALL_HEIGHT = 280;
+interface CanvasLayers {
+    mainLayer: Layer;
+    tempLayer: Layer;
+    gridLayer: Layer;
+}
 
-    readonly manifest = {
-        id: 'wall:default',
-        name: 'Wall Tool',
-        version: '1.0.0',
-        description: 'Tool for creating and editing walls',
-        dependencies: []
-    };
+const toolManifest = {
+    id: 'wall-tool',
+    name: 'Wall Tool',
+    version: '1.0.0',
+    icon: '🧱',
+    tooltip: 'Draw walls (W)',
+    section: 'draw',
+    order: 1,
+    shortcut: 'w'
+};
 
-    constructor() {
-        super(
-            'wall:default',
-            'Wall',
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="none" d="M0 0h24v24H0z"/><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>',
-            'wall',
-            'W'
-        );
-        this.wallService = WallService.getInstance();
-        this.wallRenderer = new WallRenderer();
+@ToolPlugin({
+    id: 'wall-tool',
+    name: 'Wall Tool',
+    version: '1.0.0',
+    description: 'Tool for drawing walls',
+    icon: '🧱',
+    tooltip: 'Draw walls (W)',
+    section: 'draw',
+    order: 1,
+    shortcut: 'w'
+})
+export class WallTool extends DrawingTool {
+    private readonly core: WallToolCore;
+    private readonly commandManager: CommandManager;
+    private mainLayer: Layer | null = null;
+    private previewLayer: Layer | null = null;
+
+    constructor(
+        eventManager: IEventManager,
+        logger: ILogger,
+        configManager: IConfigManager,
+        store: ProjectStore,
+        id: string = 'wall-tool',
+        manifest = toolManifest
+    ) {
+        super(eventManager, logger, configManager, store, id, manifest);
+
+        this.core = new WallToolCore({
+            defaultWallProperties: {
+                thickness: 10,
+                height: 280
+            },
+            snapThreshold: 20,
+            nodeRadius: 5
+        });
+
+        this.commandManager = new CommandManager();
+
+        // Subscribe to canvas layers
+        this.eventManager.on<CanvasLayers>('canvas:layers', (layers) => {
+            this.logger.info('Received canvas layers in WallTool');
+            this.setLayers(layers.mainLayer, layers.tempLayer);
+        });
+
+        // Request layers if canvas is already initialized
+        this.eventManager.emit('canvas:request-layers', null);
+
+        // Register keyboard shortcuts
+        this.registerKeyboardShortcuts();
+
+        // Log initialization
+        this.logger.info('WallTool initialized');
     }
 
-    async initialize(): Promise<void> {
-        // Registrar la herramienta en el ToolService
-        ToolService.getInstance().registerTool(this);
-        await super.initialize();
-        this.setupEventListeners();
+    // Tool lifecycle methods
+    async activate(): Promise<void> {
+        await super.activate();
+        this.logger.info('WallTool activated');
+        
+        // Request layers again on activation to ensure we have them
+        if (!this.mainLayer || !this.previewLayer) {
+            this.logger.info('Requesting canvas layers on activation');
+            this.eventManager.emit('canvas:request-layers', null);
+        }
+        
+        this.core.setMode(WallToolMode.IDLE);
     }
 
-    private setupEventListeners(): void {
-        // Suscribirse a eventos de configuración
-        this.subscribeToEvent('config-updated', (config) => {
-            this.emitEvent('properties-changed', config);
-        });
+    async deactivate(): Promise<void> {
+        await super.deactivate();
+        this.logger.info('WallTool deactivated');
+        this.core.setMode(WallToolMode.IDLE);
+    }
 
-        // Suscribirse a eventos del grid
-        this.subscribeToEvent('grid:size-changed', (size: number) => {
-            this.wallRenderer.setGridSize(size);
+    // Canvas setup
+    setLayers(mainLayer: Layer, previewLayer: Layer): void {
+        this.logger.info('Setting layers for WallTool', {
+            mainLayerId: mainLayer.id(),
+            previewLayerId: previewLayer.id()
         });
-
-        this.subscribeToEvent('grid:enabled-changed', (enabled: boolean) => {
-            this.wallRenderer.enableGridSnapping(enabled);
-        });
+        this.mainLayer = mainLayer;
+        this.previewLayer = previewLayer;
+        this.core.setLayers(mainLayer, previewLayer);
     }
 
     // Event handlers
-    onMouseDown(context: IToolContext): void {
-        if (!this.isActive()) return;
-
-        const snapPoint = this.wallService.getNearestSnapPoint(context.canvasPosition, this.SNAP_THRESHOLD);
-        const startPoint = snapPoint || context.canvasPosition;
-
-        this.drawingState = {
-            isDrawing: true,
-            startPoint,
-            currentPoint: startPoint,
-            snapPoint: snapPoint,
-            previewWall: {
-                startPoint,
-                endPoint: startPoint,
-                thickness: this.DEFAULT_WALL_THICKNESS,
-                height: this.DEFAULT_WALL_HEIGHT
-            }
-        };
-
-        // Renderizar puntos de snap y el indicador en la capa temporal
-        this.wallRenderer.clear(context.layer);
-        this.wallRenderer.renderSnapPoints(context.layer, this.wallService.getSnapPoints());
-        if (snapPoint) {
-            this.wallRenderer.renderSnapIndicator(context.layer, snapPoint);
-            console.log('🎯 Snapped to existing point');
+    handleMouseDown(e: KonvaEventObject<MouseEvent>): void {
+        if (!this.mainLayer || !this.previewLayer) {
+            this.logger.warn('Layers not set for WallTool');
+            return;
         }
-
-        console.log('🏗️ Started wall drawing');
-        this.emitEvent('drawing-start', {
-            point: startPoint,
-            snapped: !!snapPoint
-        });
+        this.logger.debug('Mouse down event in WallTool', { position: e.target.getStage()?.getPointerPosition() });
+        this.core.handleMouseDown(e);
     }
 
-    onMouseMove(context: IToolContext): void {
-        if (!this.isActive() || !this.drawingState?.isDrawing) return;
+    handleMouseMove(e: KonvaEventObject<MouseEvent>): void {
+        if (!this.mainLayer || !this.previewLayer) return;
+        this.core.handleMouseMove(e);
+    }
 
-        const snapPoint = this.wallService.getNearestSnapPoint(context.canvasPosition, this.SNAP_THRESHOLD);
-        const currentPoint = snapPoint || context.canvasPosition;
+    handleMouseUp(e: KonvaEventObject<MouseEvent>): void {
+        if (!this.mainLayer || !this.previewLayer) return;
+        this.core.handleMouseUp(e);
+    }
 
-        // Actualizar estado
-        this.drawingState.currentPoint = currentPoint;
-        this.drawingState.snapPoint = snapPoint;
-        this.drawingState.previewWall = {
-            ...this.drawingState.previewWall,
-            endPoint: currentPoint
+    // Helper method to snap coordinates to pixel grid
+    private snapToGrid(point: Point): { x: number, y: number } {
+        return {
+            x: Math.round(Number(point.x)),
+            y: Math.round(Number(point.y))
         };
+    }
 
-        // Limpiar y renderizar elementos temporales
-        this.wallRenderer.clear(context.layer);
-        this.wallRenderer.renderSnapPoints(context.layer, this.wallService.getSnapPoints());
-        if (snapPoint) {
-            this.wallRenderer.renderSnapIndicator(context.layer, snapPoint);
+    // Required DrawingTool implementations
+    protected async onDrawingStart(point: Point): Promise<void> {
+        this.logger.info('Starting wall drawing', { point });
+        if (!this.mainLayer || !this.previewLayer) {
+            this.logger.warn('Layers not set for drawing start');
+            return;
         }
 
-        // Renderizar preview en la capa temporal
-        if (this.drawingState.startPoint) {
-            this.wallRenderer.renderPreview(
-                context.layer,
-                this.drawingState.startPoint,
-                currentPoint,
-                {
-                    thickness: this.DEFAULT_WALL_THICKNESS,
-                    showDimensions: true
+        const stage = this.mainLayer.getStage();
+        if (!stage) {
+            this.logger.error('No stage available for drawing');
+            return;
+        }
+
+        // Snap coordinates to pixel grid
+        const { x, y } = this.snapToGrid(point);
+        this.logger.debug('Snapped coordinates', { original: point, snapped: { x, y } });
+
+        stage.setPointersPositions({ x, y });
+
+        const konvaEvent = {
+            target: stage,
+            type: 'mousedown',
+            evt: new MouseEvent('mousedown', {
+                clientX: x,
+                clientY: y
+            }),
+            pointerId: 1,
+            currentTarget: stage,
+            cancelBubble: false,
+        } as unknown as KonvaEventObject<MouseEvent>;
+
+        this.core.handleMouseDown(konvaEvent);
+    }
+
+    protected async onDrawingUpdate(point: Point): Promise<void> {
+        if (!this.mainLayer || !this.previewLayer) return;
+        
+        const stage = this.mainLayer.getStage();
+        if (!stage) {
+            this.logger.error('No stage available for drawing');
+            return;
+        }
+
+        // Snap coordinates to pixel grid
+        const { x, y } = this.snapToGrid(point);
+
+        stage.setPointersPositions({ x, y });
+
+        const konvaEvent = {
+            target: stage,
+            type: 'mousemove',
+            evt: new MouseEvent('mousemove', {
+                clientX: x,
+                clientY: y
+            }),
+            pointerId: 1,
+            currentTarget: stage,
+            cancelBubble: false,
+        } as unknown as KonvaEventObject<MouseEvent>;
+
+        this.core.handleMouseMove(konvaEvent);
+    }
+
+    protected async onDrawingFinish(point: Point): Promise<void> {
+        this.logger.info('Finishing wall drawing', { point });
+        if (!this.mainLayer || !this.previewLayer) return;
+
+        const stage = this.mainLayer.getStage();
+        if (!stage) {
+            this.logger.error('No stage available for drawing');
+            return;
+        }
+
+        // Snap coordinates to pixel grid
+        const { x, y } = this.snapToGrid(point);
+
+        stage.setPointersPositions({ x, y });
+
+        const konvaEvent = {
+            target: stage,
+            type: 'mouseup',
+            evt: new MouseEvent('mouseup', {
+                clientX: x,
+                clientY: y
+            }),
+            pointerId: 1,
+            currentTarget: stage,
+            cancelBubble: false,
+        } as unknown as KonvaEventObject<MouseEvent>;
+
+        this.core.handleMouseUp(konvaEvent);
+    }
+
+    protected clearPreview(): void {
+        if (this.previewLayer) {
+            this.previewLayer.destroyChildren();
+            this.previewLayer.batchDraw();
+        }
+    }
+
+    public async onCanvasEvent(event: CanvasEvent): Promise<void> {
+        if (!event.position) {
+            this.logger.warn('Canvas event without position');
+            return;
+        }
+
+        this.logger.debug('Canvas event in WallTool', { type: event.type, position: event.position });
+
+        switch (event.type) {
+            case 'mousedown':
+                await this.onDrawingStart(event.position);
+                break;
+            case 'mousemove':
+                await this.onDrawingUpdate(event.position);
+                break;
+            case 'mouseup':
+                await this.onDrawingFinish(event.position);
+                break;
+        }
+    }
+
+    // Keyboard shortcuts
+    private registerKeyboardShortcuts(): void {
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z') {
+                    if (e.shiftKey) {
+                        this.commandManager.redo();
+                    } else {
+                        this.commandManager.undo();
+                    }
+                    e.preventDefault();
                 }
-            );
-        }
+            }
 
-        this.emitEvent('drawing-update', {
-            start: this.drawingState.startPoint,
-            current: currentPoint,
-            snapped: !!snapPoint,
-            preview: this.drawingState.previewWall
+            if (e.key === 'Escape') {
+                this.core.setMode(WallToolMode.IDLE);
+                e.preventDefault();
+            }
         });
     }
 
-    onMouseUp(context: IToolContext): void {
-        if (!this.isActive() || !this.drawingState?.isDrawing) return;
-
-        const snapPoint = this.wallService.getNearestSnapPoint(context.canvasPosition, this.SNAP_THRESHOLD);
-        const endPoint = snapPoint || context.canvasPosition;
-
-        // Verificar distancia mínima
-        if (this.drawingState.startPoint && 
-            this.calculateDistance(this.drawingState.startPoint, endPoint) >= 10) {
-            
-            this.createWall(this.drawingState.startPoint, endPoint, context.mainLayer);
-            console.log('✅ Wall created');
-        } else {
-            console.log('⚠️ Wall too short - minimum length required: 10px');
-        }
-
-        // Limpiar capa temporal
-        this.wallRenderer.clear(context.layer);
-        this.drawingState = null;
-        this.emitEvent('drawing-end');
+    // Tool state
+    getMode(): WallToolMode {
+        return this.core.getMode();
     }
 
-    onKeyDown(event: KeyboardEvent): void {
-        if (event.key === 'Escape' && this.drawingState?.isDrawing) {
-            console.log('🚫 Drawing cancelled');
-            this.cancelDrawing();
-        }
+    // Command history
+    canUndo(): boolean {
+        return this.commandManager.canUndo();
     }
 
-    // Wall creation
-    private async createWall(startPoint: Point, endPoint: Point, layer: Konva.Layer): Promise<void> {
-        try {
-            const wall = await this.wallService.createWall({
-                startPoint,
-                endPoint,
-                thickness: this.DEFAULT_WALL_THICKNESS,
-                height: this.DEFAULT_WALL_HEIGHT
-            });
-
-            // Renderizar el muro en la capa principal
-            this.wallRenderer.renderWall(layer, wall, {
-                thickness: this.DEFAULT_WALL_THICKNESS,
-                color: '#666666'
-            });
-
-            const distance = Math.round(this.calculateDistance(startPoint, endPoint));
-            console.log(`✨ Wall created - Length: ${distance}px`);
-            this.emitEvent('wall-created', wall);
-        } catch (error) {
-            console.error('❌ Error creating wall:', error);
-            this.emitEvent('wall-creation-error', error);
-        }
+    canRedo(): boolean {
+        return this.commandManager.canRedo();
     }
 
-    // Helper methods
-    private cancelDrawing(): void {
-        if (this.drawingState) {
-            this.emitEvent('drawing-cancel', {
-                start: this.drawingState.startPoint,
-                current: this.drawingState.currentPoint
-            });
-            this.drawingState = null;
-        }
+    undo(): void {
+        this.commandManager.undo();
     }
 
-    private calculateDistance(p1: Point, p2: Point): number {
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        return Math.sqrt(dx * dx + dy * dy);
+    redo(): void {
+        this.commandManager.redo();
     }
 
-    // Plugin lifecycle
+    // Cleanup
     async dispose(): Promise<void> {
-        this.cancelDrawing();
+        this.logger.info('Disposing WallTool');
+        this.commandManager.clear();
+        if (this.mainLayer) {
+            this.mainLayer.destroyChildren();
+        }
+        if (this.previewLayer) {
+            this.previewLayer.destroyChildren();
+        }
         await super.dispose();
     }
-
-    // Protected methods for tool-specific logic
-    protected async onActivate(): Promise<void> {
-        console.log(`🧱 Wall Tool activated - Press 'Escape' to cancel drawing, or use mouse drag to draw walls`);
-        await super.onActivate();
-    }
-
-    protected async onDeactivate(): Promise<void> {
-        console.log('🧱 Wall Tool deactivated');
-        this.cancelDrawing();
-        await super.onDeactivate();
-    }
-} 
+}

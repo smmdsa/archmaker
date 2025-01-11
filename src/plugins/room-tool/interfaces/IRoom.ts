@@ -1,25 +1,14 @@
-import { Point } from '../../../store/ProjectStore';
-import { IWall } from '../../wall-tool/interfaces/IWall';
+import { Point } from '../../../core/types/geometry';
 
-export interface RoomDrawingState {
-    isDrawing: boolean;
-    startPoint: Point;
-    currentPoint: Point;
-    snapPoint: Point | null;
-    previewWalls: IWall[];
+export interface IRoomProperties {
+    material: string;
+    color: string;
+    [key: string]: any;
 }
 
 export interface IRoom {
     id: string;
-    walls: IWall[];
-    startPoint: Point;
-    width: number;
+    points: Point[];
     height: number;
-    properties: {
-        wallThickness: number;
-        wallHeight: number;
-        name?: string;
-        color?: string;
-        [key: string]: any;
-    };
+    properties: IRoomProperties;
 } 

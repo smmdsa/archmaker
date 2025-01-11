@@ -1,14 +1,16 @@
-type EventCallback = (data: any) => void;
+import { EventMap } from './types';
 
-interface EventSubscription {
+type EventCallback<T> = (data: T) => void;
+
+interface EventSubscription<T> {
     eventName: string;
-    callback: EventCallback;
+    callback: EventCallback<T>;
     once: boolean;
 }
 
 export class EventBus {
     private static instance: EventBus;
-    private subscribers: Map<string, EventSubscription[]>;
+    private subscribers: Map<string, EventSubscription<any>[]>;
     private debugMode: boolean;
 
     private constructor() {
@@ -27,25 +29,30 @@ export class EventBus {
         this.debugMode = enabled;
     }
 
-    subscribe(eventName: string, callback: EventCallback): () => void {
+    subscribe<K extends keyof EventMap>(
+        eventName: K, 
+        callback: EventCallback<EventMap[K]>
+    ): () => void {
         this.addSubscriber(eventName, callback, false);
         return () => this.unsubscribeCallback(eventName, callback);
     }
 
-    once(eventName: string, callback: EventCallback): () => void {
+    once<K extends keyof EventMap>(
+        eventName: K, 
+        callback: EventCallback<EventMap[K]>
+    ): () => void {
         this.addSubscriber(eventName, callback, true);
         return () => this.unsubscribeCallback(eventName, callback);
     }
 
-    emit(eventName: string, data?: any): void {
+    emit<K extends keyof EventMap>(eventName: K, data: EventMap[K]): void {
         if (this.debugMode) {
             console.log(`[EventBus] Emitting event: ${eventName}`, data);
         }
 
-        const subscribers = this.subscribers.get(eventName);
+        const subscribers = this.subscribers.get(eventName as string);
         if (!subscribers) return;
 
-        // Crear una copia del array para evitar problemas si se modifican los suscriptores durante la emisión
         const subscribersCopy = [...subscribers];
 
         subscribersCopy.forEach(subscription => {
@@ -55,68 +62,73 @@ export class EventBus {
                     this.unsubscribeCallback(eventName, subscription.callback);
                 }
             } catch (error) {
-                console.error(`[EventBus] Error en el manejador de evento ${eventName}:`, error);
+                console.error(`[EventBus] Error in event handler ${eventName}:`, error);
             }
         });
     }
 
-    // Método público para cancelar todas las suscripciones de un evento
-    unsubscribe(eventName: string): void {
-        if (this.subscribers.has(eventName)) {
-            this.subscribers.delete(eventName);
+    unsubscribe(eventName: keyof EventMap): void {
+        if (this.subscribers.has(eventName as string)) {
+            this.subscribers.delete(eventName as string);
             if (this.debugMode) {
-                console.log(`[EventBus] Todas las suscripciones eliminadas para: ${eventName}`);
+                console.log(`[EventBus] All subscriptions removed for: ${eventName}`);
             }
         }
     }
 
-    // Método privado para cancelar una suscripción específica
-    private unsubscribeCallback(eventName: string, callback: EventCallback): void {
-        const subscribers = this.subscribers.get(eventName);
+    private unsubscribeCallback<K extends keyof EventMap>(
+        eventName: K, 
+        callback: EventCallback<EventMap[K]>
+    ): void {
+        const subscribers = this.subscribers.get(eventName as string);
         if (!subscribers) return;
 
         const index = subscribers.findIndex(sub => sub.callback === callback);
         if (index !== -1) {
             subscribers.splice(index, 1);
             if (subscribers.length === 0) {
-                this.subscribers.delete(eventName);
+                this.subscribers.delete(eventName as string);
             }
             if (this.debugMode) {
-                console.log(`[EventBus] Suscripción eliminada para: ${eventName}`);
+                console.log(`[EventBus] Subscription removed for: ${eventName}`);
             }
         }
     }
 
-    private addSubscriber(eventName: string, callback: EventCallback, once: boolean): void {
-        if (!this.subscribers.has(eventName)) {
-            this.subscribers.set(eventName, []);
+    private addSubscriber<K extends keyof EventMap>(
+        eventName: K, 
+        callback: EventCallback<EventMap[K]>, 
+        once: boolean
+    ): void {
+        if (!this.subscribers.has(eventName as string)) {
+            this.subscribers.set(eventName as string, []);
         }
 
-        const subscription: EventSubscription = {
-            eventName,
+        const subscription: EventSubscription<EventMap[K]> = {
+            eventName: eventName as string,
             callback,
             once
         };
 
-        this.subscribers.get(eventName)!.push(subscription);
+        this.subscribers.get(eventName as string)!.push(subscription);
 
         if (this.debugMode) {
-            console.log(`[EventBus] Nueva suscripción a: ${eventName}`, { once });
+            console.log(`[EventBus] New subscription to: ${eventName}`, { once });
         }
     }
 
     clear(): void {
         this.subscribers.clear();
         if (this.debugMode) {
-            console.log('[EventBus] Todas las suscripciones han sido eliminadas');
+            console.log('[EventBus] All subscriptions have been cleared');
         }
     }
 
-    getSubscriberCount(eventName: string): number {
-        return this.subscribers.get(eventName)?.length || 0;
+    getSubscriberCount(eventName: keyof EventMap): number {
+        return this.subscribers.get(eventName as string)?.length || 0;
     }
 
-    hasSubscribers(eventName: string): boolean {
+    hasSubscribers(eventName: keyof EventMap): boolean {
         return this.getSubscriberCount(eventName) > 0;
     }
 } 
