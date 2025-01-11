@@ -1,6 +1,8 @@
 import { Point } from '../../../store/ProjectStore';
 
 export interface WallProperties {
+    thickness: number;
+    height: number;
     material?: string;
     color?: string;
     layer?: string;

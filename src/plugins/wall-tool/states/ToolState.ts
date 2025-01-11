@@ -1,21 +1,42 @@
+export enum WallToolState {
+    IDLE = 'idle',
+    DRAWING = 'drawing',
+    EDITING = 'editing',
+    DELETING = 'deleting'
+}
+
 export class ToolState {
-    private currentState: string;
+    private currentState: WallToolState;
 
     constructor() {
-        this.currentState = 'idle';
+        this.currentState = WallToolState.IDLE;
     }
 
-    setState(state: string): void {
+    setState(state: WallToolState): void {
         this.currentState = state;
     }
 
-    getState(): string {
+    getState(): WallToolState {
         return this.currentState;
     }
 
     isDrawing(): boolean {
-        return this.currentState === 'drawing';
+        return this.currentState === WallToolState.DRAWING;
     }
 
-    // Additional state management methods
+    isEditing(): boolean {
+        return this.currentState === WallToolState.EDITING;
+    }
+
+    isDeleting(): boolean {
+        return this.currentState === WallToolState.DELETING;
+    }
+
+    isIdle(): boolean {
+        return this.currentState === WallToolState.IDLE;
+    }
+
+    reset(): void {
+        this.currentState = WallToolState.IDLE;
+    }
 } 

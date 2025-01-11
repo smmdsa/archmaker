@@ -31,11 +31,11 @@ export class Wall implements IWall {
     }
 
     getProperties(): IWallProperties {
-        return { ...this.properties };
+        return this.properties;
     }
 
-    setProperties(properties: Partial<IWallProperties>): void {
-        this.properties = { ...this.properties, ...properties };
+    updateProperties(props: IWallProperties): void {
+        this.properties = { ...this.properties, ...props };
     }
 
     getDirection(): Vector2 {

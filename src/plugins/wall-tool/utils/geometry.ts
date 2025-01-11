@@ -77,4 +77,37 @@ export function snapToGrid(point: Point, gridSize: number): Point {
         x: Math.round(point.x / gridSize) * gridSize,
         y: Math.round(point.y / gridSize) * gridSize
     };
+}
+
+export function pointToLineDistance(point: Point, lineStart: Point, lineEnd: Point): number {
+    const numerator = Math.abs(
+        (lineEnd.y - lineStart.y) * point.x -
+        (lineEnd.x - lineStart.x) * point.y +
+        lineEnd.x * lineStart.y -
+        lineEnd.y * lineStart.x
+    );
+    
+    const denominator = Math.sqrt(
+        Math.pow(lineEnd.y - lineStart.y, 2) +
+        Math.pow(lineEnd.x - lineStart.x, 2)
+    );
+    
+    return denominator === 0 ? getDistance(point, lineStart) : numerator / denominator;
+}
+
+export function findNodeAtPosition(point: Point, nodes: Point[], threshold: number = 1): Point | null {
+    for (const node of nodes) {
+        const distance = getDistance(node, point);
+        if (distance < threshold) {
+            return node;
+        }
+    }
+    return null;
+}
+
+export function isPointOnSegment(point: Point, segmentStart: Point, segmentEnd: Point, tolerance: number = 0.1): boolean {
+    const d1 = getDistance(point, segmentStart);
+    const d2 = getDistance(point, segmentEnd);
+    const lineLength = getDistance(segmentStart, segmentEnd);
+    return Math.abs(d1 + d2 - lineLength) < tolerance;
 } 

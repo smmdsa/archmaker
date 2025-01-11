@@ -12,7 +12,7 @@ import {
     IWallGraphEvent,
     IWallNodeMetadata
 } from '../types/WallTypes';
-import { calculateAngle, getDistance } from '../utils/geometry';
+import { calculateAngle, getDistance, pointToLineDistance, isPointOnSegment, findIntersection } from '../utils/geometry';
 import { EventEmitter } from '../../../core/events/EventEmitter';
 
 export class WallGraphService {
@@ -125,15 +125,11 @@ export class WallGraphService {
 
     private findNodeAtPosition(position: Point, threshold: number = 1): IWallNode | null {
         for (const node of this.nodes.values()) {
-            const distance = Math.sqrt(
-                Math.pow(node.position.x - position.x, 2) +
-                Math.pow(node.position.y - position.y, 2)
-            );
-            if (distance < threshold) {
+            if (getDistance(node.position, position) < threshold) {
                 console.debug('Found existing node at position:', {
                     nodeId: node.id,
                     position,
-                    distance
+                    distance: getDistance(node.position, position)
                 });
                 return node;
             }
@@ -149,64 +145,17 @@ export class WallGraphService {
         const endNode = this.nodes.get(wall.endNodeId);
         if (!startNode || !endNode) return null;
 
-        // Primero verificar si el punto está cerca de alguno de los nodos existentes
+        // Check if point is near existing nodes
         const existingNode = this.findNodeAtPosition(point);
         if (existingNode) return existingNode;
 
-        // Si no, verificar si el punto está en la línea de la pared
-        const distanceToLine = this.pointToLineDistance(
-            point,
-            startNode.position,
-            endNode.position
-        );
-
-        if (distanceToLine < 0.1) {
-            // Verificar si el punto está entre los extremos de la pared
-            const isOnSegment = this.isPointOnSegment(
-                point,
-                startNode.position,
-                endNode.position
-            );
-            
-            if (isOnSegment) {
-                return this.createNode(point);
-            }
+        // Check if point is on wall line
+        if (pointToLineDistance(point, startNode.position, endNode.position) < 0.1 &&
+            isPointOnSegment(point, startNode.position, endNode.position)) {
+            return this.createNode(point);
         }
 
         return null;
-    }
-
-    private pointToLineDistance(point: Point, lineStart: Point, lineEnd: Point): number {
-        const numerator = Math.abs(
-            (lineEnd.y - lineStart.y) * point.x -
-            (lineEnd.x - lineStart.x) * point.y +
-            lineEnd.x * lineStart.y -
-            lineEnd.y * lineStart.x
-        );
-        
-        const denominator = Math.sqrt(
-            Math.pow(lineEnd.y - lineStart.y, 2) +
-            Math.pow(lineEnd.x - lineStart.x, 2)
-        );
-        
-        return numerator / denominator;
-    }
-
-    private isPointOnSegment(point: Point, segmentStart: Point, segmentEnd: Point): boolean {
-        const d1 = this.getDistance(point, segmentStart);
-        const d2 = this.getDistance(point, segmentEnd);
-        const lineLength = this.getDistance(segmentStart, segmentEnd);
-        
-        // Permitir un pequeño margen de error en la suma de distancias
-        const tolerance = 0.1;
-        return Math.abs(d1 + d2 - lineLength) < tolerance;
-    }
-
-    private getDistance(p1: Point, p2: Point): number {
-        return Math.sqrt(
-            Math.pow(p2.x - p1.x, 2) +
-            Math.pow(p2.y - p1.y, 2)
-        );
     }
 
     private getConnectedNodesInGraph(startNode: IWallNode): IWallNode[] {
@@ -218,7 +167,6 @@ export class WallGraphService {
             visited.add(node.id);
             result.push(node);
             
-            // Recorrer todos los nodos conectados
             node.connectedNodes.forEach((conn, nodeId) => {
                 const connectedNode = this.nodes.get(nodeId);
                 if (connectedNode) {
@@ -371,13 +319,12 @@ export class WallGraphService {
     private findWallIntersections(start: Point, end: Point): Array<{ point: Point, wallId: string }> {
         const intersections: Array<{ point: Point, wallId: string }> = [];
         
-        // Revisar cada pared existente
         this.walls.forEach((wall, wallId) => {
             const wallStart = this.nodes.get(wall.startNodeId);
             const wallEnd = this.nodes.get(wall.endNodeId);
             
             if (wallStart && wallEnd) {
-                const intersection = this.lineIntersection(
+                const intersection = findIntersection(
                     start,
                     end,
                     wallStart.position,
@@ -394,28 +341,6 @@ export class WallGraphService {
         });
         
         return intersections;
-    }
-
-    private lineIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point | null {
-        // Cálculo basado en el algoritmo de intersección de líneas
-        const denominator = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
-        
-        if (denominator === 0) {
-            return null; // Líneas paralelas
-        }
-        
-        const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denominator;
-        const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denominator;
-        
-        // Verificar si la intersección está dentro de ambos segmentos
-        if (ua < 0 || ua > 1 || ub < 0 || ub > 1) {
-            return null;
-        }
-        
-        return {
-            x: p1.x + ua * (p2.x - p1.x),
-            y: p1.y + ua * (p2.y - p1.y)
-        };
     }
 
     public removeWall(wallId: string): boolean {
