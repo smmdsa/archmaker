@@ -1,155 +1,195 @@
-import { DrawingTool } from '../../core/tools/DrawingTool';
+import { BaseTool } from '../../core/tools/BaseTool';
 import type { IEventManager } from '../../core/interfaces/IEventManager';
 import type { ILogger } from '../../core/interfaces/ILogger';
 import type { IConfigManager } from '../../core/interfaces/IConfig';
 import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
-import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
-import { UIComponentManifest } from '../../core/interfaces/IUIRegion';
 import { Point } from '../../core/types/geometry';
-import { ProjectStore } from '../../store/ProjectStore';
-import { RoomToolCore } from './core/RoomToolCore';
-import { Layer } from 'konva/lib/Layer';
+import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
+import { RoomObject } from './objects/RoomObject';
+import { WallObject } from '../wall-tool/objects/WallObject';
+import { WallGraph } from '../wall-tool/models/WallGraph';
 import { CanvasStore } from '../../store/CanvasStore';
+import { Line } from 'konva/lib/shapes/Line';
+import { Layer } from 'konva/lib/Layer';
+import { v4 as uuidv4 } from 'uuid';
 
-const toolManifest = {
-    id: 'room-tool',
-    name: 'Square Room',
-    version: '1.0.0',
-    icon: '⬜',
-    tooltip: 'Draw square room',
-    section: 'draw',
-    order: 2,
-    shortcut: 'r'
-};
-
-interface CanvasLayers {
-    mainLayer: Layer;
-    tempLayer: Layer;
-    gridLayer: Layer;
+interface RoomToolState {
+    isDrawing: boolean;
+    startPoint: Point | null;
+    previewShape: Line | null;
 }
 
 @ToolPlugin({
-    id: 'room-tool',
-    name: 'Square Room',
+    id: '@room-tool',
+    name: 'Room Tool',
     version: '1.0.0',
-    description: 'Tool for drawing square/rectangular rooms',
-    icon: '⬜',
-    tooltip: 'Draw square room',
-    section: 'draw',
-    order: 2,
+    description: 'Tool for creating rectangular rooms',
+    icon: '🔳',
+    tooltip: 'Create rooms (R)',
+    section: 'tools',
+    order: 3,
     shortcut: 'r'
 })
-export class RoomTool extends DrawingTool {
-    private readonly core: RoomToolCore;
-    private mainLayer: Layer | null = null;
-    private previewLayer: Layer | null = null;
+export class RoomTool extends BaseTool {
+    private readonly state: RoomToolState = {
+        isDrawing: false,
+        startPoint: null,
+        previewShape: null
+    };
+
+    private static readonly TOOL_ID = '@room-tool';
+    private static readonly TOOL_MANIFEST = {
+        id: RoomTool.TOOL_ID,
+        name: 'Room Tool',
+        version: '1.0.0',
+        icon: '🔳',
+        tooltip: 'Create rooms (R)',
+        section: 'tools',
+        order: 3,
+        shortcut: 'r'
+    };
+
+    private canvasStore: CanvasStore;
+    private tempLayer: Layer | null = null;
 
     constructor(
         eventManager: IEventManager,
         logger: ILogger,
-        configManager: IConfigManager,
-        store: ProjectStore
+        configManager: IConfigManager
     ) {
-        super(eventManager, logger, configManager, store, 'room-tool', toolManifest);
+        super(eventManager, logger, RoomTool.TOOL_ID, RoomTool.TOOL_MANIFEST);
         
-        // Get singleton instance of CanvasStore
-        const canvasStore = CanvasStore.getInstance(eventManager, logger);
+        this.canvasStore = CanvasStore.getInstance(eventManager, logger);
 
-        this.core = new RoomToolCore(
-            {
-                defaultRoomProperties: {
-                    wallThickness: 10,
-                    wallHeight: 280
-                },
-                snapThreshold: 20
-            },
-            eventManager,
-            logger,
-            canvasStore
-        );
-
-        // Subscribe to canvas layers
-        this.eventManager.on<CanvasLayers>('canvas:layers', (layers) => {
-            this.logger.info('Received canvas layers in RoomTool');
-            this.setLayers(layers.mainLayer, layers.tempLayer);
-            canvasStore.setLayers(layers);
+        // Subscribe to canvas layer changes
+        this.eventManager.on('canvas:layers', (event: any) => {
+            this.tempLayer = event.tempLayer;
         });
-
-        // Request layers if canvas is already initialized
-        this.eventManager.emit('canvas:request-layers', null);
-
-        // Subscribe to wall events for logging
-        this.eventManager.on<{ wall: any }>('wall:created', (event) => {
-            this.logger.info('Wall created in room tool context', { wall: event.wall });
-        });
-
-        this.logger.info('RoomTool initialized');
-    }
-
-    protected clearPreview(): void {
-        if (this.previewLayer) {
-            this.previewLayer.destroyChildren();
-            this.previewLayer.batchDraw();
-        }
-    }
-
-    private setLayers(mainLayer: Layer, tempLayer: Layer): void {
-        this.logger.info('Setting layers in RoomTool', {
-            mainLayerId: mainLayer.id(),
-            tempLayerId: tempLayer.id()
-        });
-        this.mainLayer = mainLayer;
-        this.previewLayer = tempLayer;
-        this.core.setLayers(mainLayer, tempLayer);
-    }
-
-    protected async onDrawingStart(point: Point): Promise<void> {
-        this.logger.info('Starting room drawing', { point });
-        this.core.startDrawing(point);
-    }
-
-    protected async onDrawingUpdate(point: Point): Promise<void> {
-        this.core.updateDrawing(point);
-    }
-
-    protected async onDrawingFinish(point: Point): Promise<void> {
-        this.logger.info('Finishing room drawing', { point });
-        await this.core.finishDrawing();
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {
-        if (event.type === 'mousemove' && !event.position) return;
+        const position = event.position;
+        if (!position || !this.tempLayer) return;
 
         switch (event.type) {
             case 'mousedown':
-                if (event.position) {
-                    await this.startDrawing(event.position);
-                }
+                await this.handleMouseDown(position);
                 break;
             case 'mousemove':
-                if (event.position) {
-                    await this.updateDrawing(event.position);
-                }
+                await this.handleMouseMove(position);
                 break;
             case 'mouseup':
-                if (event.position) {
-                    await this.finishDrawing(event.position);
-                }
+                await this.handleMouseUp(position);
                 break;
         }
     }
 
-    getUIComponents(): UIComponentManifest[] {
-        return [{
-            id: 'room-tool-button',
-            region: 'toolbar',
-            order: 2,
-            template: `
-                <button class="toolbar-button" title="${toolManifest.tooltip} (${toolManifest.shortcut?.toUpperCase()})">${toolManifest.icon}</button>
-            `,
-            events: {
-                click: () => this.activate()
+    private async handleMouseDown(point: Point): Promise<void> {
+        // Start room creation
+        this.state.isDrawing = true;
+        this.state.startPoint = point;
+
+        // Create preview shape
+        this.state.previewShape = new Line({
+            points: [point.x, point.y, point.x, point.y, point.x, point.y, point.x, point.y],
+            closed: true,
+            fill: 'rgba(200, 200, 200, 0.2)',
+            stroke: '#666666',
+            strokeWidth: 1,
+            dash: [5, 5]
+        });
+
+        this.tempLayer?.add(this.state.previewShape);
+        this.tempLayer?.batchDraw();
+    }
+
+    private async handleMouseMove(point: Point): Promise<void> {
+        if (!this.state.isDrawing || !this.state.startPoint || !this.state.previewShape) return;
+
+        // Update preview shape
+        const points = [
+            this.state.startPoint.x, this.state.startPoint.y,
+            point.x, this.state.startPoint.y,
+            point.x, point.y,
+            this.state.startPoint.x, point.y
+        ];
+
+        this.state.previewShape.points(points);
+        this.tempLayer?.batchDraw();
+    }
+
+    private async handleMouseUp(point: Point): Promise<void> {
+        if (!this.state.isDrawing || !this.state.startPoint) return;
+
+        const width = Math.abs(point.x - this.state.startPoint.x);
+        const height = Math.abs(point.y - this.state.startPoint.y);
+
+        // Only create room if it has a minimum size
+        if (width > 20 && height > 20) {
+            // Create walls using WallGraph
+            const graph = this.canvasStore.getWallGraph();
+            
+            // Calculate corner points
+            const corners: Point[] = [
+                { x: this.state.startPoint.x, y: this.state.startPoint.y },
+                { x: point.x, y: this.state.startPoint.y },
+                { x: point.x, y: point.y },
+                { x: this.state.startPoint.x, y: point.y }
+            ];
+
+            // Create nodes first
+            const nodes = corners.map(corner => graph.createNode(corner));
+            
+            // Create walls between nodes
+            const wallIds: string[] = [];
+            for (let i = 0; i < nodes.length; i++) {
+                const startNode = nodes[i];
+                const endNode = nodes[(i + 1) % nodes.length];
+                
+                const wall = graph.createWall(startNode.id, endNode.id);
+                if (wall) {
+                    wallIds.push(wall.id);
+                }
             }
-        }];
+
+            // Only create room if all walls were created successfully
+            if (wallIds.length === 4) {
+                // Calculate top-left corner for room
+                const startPoint: Point = {
+                    x: Math.min(this.state.startPoint.x, point.x),
+                    y: Math.min(this.state.startPoint.y, point.y)
+                };
+
+                // Create room object
+                const room = new RoomObject(
+                    uuidv4(),
+                    startPoint,
+                    width,
+                    height,
+                    wallIds,
+                    graph
+                );
+
+                // Add room to graph
+                graph.addRoom(room);
+
+                // Notify changes
+                this.eventManager.emit('graph:changed', {
+                    nodeCount: graph.getAllNodes().length,
+                    wallCount: graph.getAllWalls().length,
+                    roomCount: graph.getAllRooms().length
+                });
+            }
+        }
+
+        // Clean up
+        if (this.state.previewShape) {
+            this.state.previewShape.destroy();
+            this.state.previewShape = null;
+            this.tempLayer?.batchDraw();
+        }
+
+        this.state.isDrawing = false;
+        this.state.startPoint = null;
     }
 } 

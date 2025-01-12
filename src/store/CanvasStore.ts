@@ -1,28 +1,31 @@
-import { BehaviorSubject, Subject } from 'rxjs';
+import { BehaviorSubject, Subject, debounceTime } from 'rxjs';
 import { Layer } from 'konva/lib/Layer';
 import { WallGraph } from '../plugins/wall-tool/models/WallGraph';
-import { WallRenderer } from '../plugins/wall-tool/renderers/WallRenderer';
-import { NodeRenderer } from '../plugins/wall-tool/renderers/NodeRenderer';
 import { ILogger } from '../core/interfaces/ILogger';
 import { IEventManager } from '../core/interfaces/IEventManager';
-import { IWall } from '../plugins/wall-tool/interfaces/IWall';
+import { ISelectableObject } from '../core/interfaces/ISelectableObject';
+import { WallObject } from '../plugins/wall-tool/objects/WallObject';
+import { NodeObject } from '../plugins/wall-tool/objects/NodeObject';
+import { RoomObject } from '../plugins/room-tool/objects/RoomObject';
 
 // Event interfaces
-interface WallCreatedEvent {
-    wall: IWall;
+interface ObjectCreatedEvent {
+    object: ISelectableObject;
 }
 
-interface WallUpdatedEvent {
-    wall: IWall;
+interface ObjectUpdatedEvent {
+    object: ISelectableObject;
 }
 
-interface WallDeletedEvent {
-    wallId: string;
+interface ObjectDeletedEvent {
+    objectId: string;
+    type: string;
 }
 
 interface GraphChangedEvent {
     nodeCount: number;
     wallCount: number;
+    roomCount: number;
 }
 
 export interface CanvasLayers {
@@ -45,10 +48,6 @@ export class CanvasStore {
     private readonly layers$ = new BehaviorSubject<CanvasLayers | null>(null);
     private readonly redraw$ = new Subject<void>();
     
-    // Add renderers as instance properties
-    private readonly wallRenderer: WallRenderer;
-    private readonly nodeRenderer: NodeRenderer;
-
     private constructor(
         private readonly eventManager: IEventManager,
         private readonly logger: ILogger
@@ -60,17 +59,6 @@ export class CanvasStore {
             // doors: new DoorGraph(),
             // windows: new WindowGraph()
         };
-
-        // Initialize renderers
-        this.wallRenderer = new WallRenderer({
-            thickness: 10, // Default thickness
-            color: '#666'
-        });
-
-        this.nodeRenderer = new NodeRenderer({
-            radius: 5,
-            color: '#666'
-        });
         
         this.setupSubscriptions();
         this.logger.info('CanvasStore singleton initialized with graphs', {
@@ -100,39 +88,66 @@ export class CanvasStore {
     // }
 
     private setupSubscriptions(): void {
-        // Wall events
-        this.eventManager.on<WallCreatedEvent>('wall:created', (event) => {
-            this.logger.info('Wall created in CanvasStore', { wall: event.wall });
+        // Object events
+        this.eventManager.on<ObjectCreatedEvent>('object:created', () => {
             this.redraw$.next();
         });
 
-        this.eventManager.on<WallUpdatedEvent>('wall:updated', (event) => {
-            this.logger.info('Wall updated in CanvasStore', { wall: event.wall });
+        this.eventManager.on<ObjectUpdatedEvent>('object:updated', () => {
             this.redraw$.next();
         });
 
-        this.eventManager.on<WallDeletedEvent>('wall:deleted', (event) => {
-            this.logger.info('Wall deleted in CanvasStore', { wallId: event.wallId });
+        this.eventManager.on<ObjectDeletedEvent>('object:deleted', () => {
             this.redraw$.next();
         });
 
         // Graph change events
-        this.eventManager.on<GraphChangedEvent>('graph:changed', (event) => {
-            this.logger.info('Graph changed in CanvasStore', event);
+        this.eventManager.on<GraphChangedEvent>('graph:changed', () => {
             this.redraw$.next();
         });
 
-        // Subscribe to redraw events
-        this.redraw$.subscribe(() => {
+        // Subscribe to redraw events with debounce to prevent too frequent redraws
+        this.redraw$.pipe(
+            debounceTime(16) // ~60fps
+        ).subscribe(() => {
             this.redrawCanvas();
         });
     }
 
-    setLayers(layers: CanvasLayers): void {
-        this.logger.info('Setting canvas layers', {
-            mainLayerId: layers.mainLayer.id(),
-            tempLayerId: layers.tempLayer.id()
+    private redrawCanvas(): void {
+        const layers = this.layers$.getValue();
+        if (!layers) return;
+
+        // Clear main layer
+        layers.mainLayer.destroyChildren();
+
+        // Render all objects in the correct order
+        this.renderObjects(layers.mainLayer);
+
+        // Batch draw for performance
+        layers.mainLayer.batchDraw();
+    }
+
+    private renderObjects(layer: Layer): void {
+        const graph = this.graphs.walls;
+
+        // Render walls first (bottom layer)
+        graph.getAllWalls().forEach(wall => {
+            wall.render(layer);
         });
+
+        // Render rooms next (middle layer)
+        graph.getAllRooms().forEach(room => {
+            room.render(layer);
+        });
+
+        // Render nodes last (top layer)
+        graph.getAllNodes().forEach(node => {
+            node.render(layer);
+        });
+    }
+
+    setLayers(layers: CanvasLayers): void {
         this.layers$.next(layers);
         this.redrawCanvas();
     }
@@ -140,49 +155,4 @@ export class CanvasStore {
     getLayers(): CanvasLayers | null {
         return this.layers$.getValue();
     }
-
-    private redrawCanvas(): void {
-        const layers = this.layers$.getValue();
-        if (!layers) {
-            this.logger.warn('Cannot redraw canvas - layers not set');
-            return;
-        }
-
-        const { mainLayer } = layers;
-
-        // Clear main layer
-        mainLayer.destroyChildren();
-
-        // Render walls and nodes
-        this.renderWalls(mainLayer);
-
-        // Future rendering:
-        // this.renderDoors(mainLayer);
-        // this.renderWindows(mainLayer);
-
-        // Batch draw
-        mainLayer.batchDraw();
-        this.logger.info('Canvas redrawn', { 
-            wallCount: this.graphs.walls.getAllWalls().length,
-            nodeCount: this.graphs.walls.getAllNodes().length
-        });
-    }
-
-    private renderWalls(layer: Layer): void {
-        // Render walls
-        const walls = this.graphs.walls.getAllWalls();
-        walls.forEach(wall => {
-            this.wallRenderer.createWallLine(wall, layer);
-        });
-
-        // Render nodes
-        const nodes = this.graphs.walls.getAllNodes();
-        nodes.forEach(node => {
-            this.nodeRenderer.createNodeCircle(node, layer);
-        });
-    }
-
-    // Future rendering methods:
-    // private renderDoors(layer: Layer): void { ... }
-    // private renderWindows(layer: Layer): void { ... }
 } 
