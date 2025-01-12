@@ -3,8 +3,28 @@ import { Line } from 'konva/lib/shapes/Line';
 import { Wall } from '../models/Wall';
 import { Vector2 } from 'three';
 
+interface WallRendererConfig {
+    thickness: number;
+    color: string;
+    opacity?: number;
+    dashEnabled?: boolean;
+    dash?: number[];
+}
+
 export class WallRenderer {
-    static createWallLine(wall: Wall, layer: Layer): Line {
+    private config: WallRendererConfig;
+
+    constructor(config: WallRendererConfig) {
+        this.config = {
+            thickness: config.thickness || 2,
+            color: config.color || '#666',
+            opacity: config.opacity || 1,
+            dashEnabled: config.dashEnabled || false,
+            dash: config.dash || [5, 5]
+        };
+    }
+
+    createWallLine(wall: Wall, layer: Layer): Line {
         const startPos = wall.getStartNode().getPosition();
         const endPos = wall.getEndNode().getPosition();
 
@@ -28,19 +48,24 @@ export class WallRenderer {
 
         const line = new Line({
             points: points,
-            stroke: '#666',
-            strokeWidth: wall.getProperties().thickness || 2,
+            stroke: this.config.color,
+            strokeWidth: wall.getProperties().thickness || this.config.thickness,
+            opacity: this.config.opacity,
             name: 'wall',
             data: {
                 wallId: wall.getId()
             }
         });
 
+        if (this.config.dashEnabled && this.config.dash) {
+            line.dash(this.config.dash);
+        }
+
         layer.add(line);
         return line;
     }
 
-    static createPreviewLine(startPoint: Vector2, endPoint: Vector2, layer: Layer): Line {
+    createPreviewWall(startPoint: Vector2, endPoint: Vector2, thickness: number): Line {
         // Ensure coordinates are valid numbers
         const points = [
             Math.round(startPoint.x),
@@ -51,7 +76,7 @@ export class WallRenderer {
 
         // Verify all points are valid numbers
         if (!points.every(coord => Number.isFinite(coord))) {
-            console.error('Invalid coordinates detected in preview line:', points);
+            console.error('Invalid coordinates detected in preview wall:', points);
             return new Line({
                 points: [0, 0, 0, 0],
                 stroke: 'red',
@@ -61,17 +86,20 @@ export class WallRenderer {
 
         const line = new Line({
             points: points,
-            stroke: '#999',
-            strokeWidth: 2,
-            dash: [5, 5],
-            name: 'preview'
+            stroke: this.config.color,
+            strokeWidth: thickness,
+            opacity: this.config.opacity,
+            name: 'preview-wall'
         });
 
-        layer.add(line);
+        if (this.config.dashEnabled && this.config.dash) {
+            line.dash(this.config.dash);
+        }
+
         return line;
     }
 
-    static updateWallLine(line: Line, wall: Wall): void {
+    updateWallLine(line: Line, wall: Wall): void {
         const startPos = wall.getStartNode().getPosition();
         const endPos = wall.getEndNode().getPosition();
 
@@ -86,24 +114,6 @@ export class WallRenderer {
         // Verify all points are valid numbers
         if (!points.every(coord => Number.isFinite(coord))) {
             console.error('Invalid coordinates detected in updateWallLine:', points);
-            return;
-        }
-
-        line.points(points);
-    }
-
-    static updatePreviewLine(line: Line, startPoint: Vector2, endPoint: Vector2): void {
-        // Ensure coordinates are valid numbers
-        const points = [
-            Math.round(startPoint.x),
-            Math.round(startPoint.y),
-            Math.round(endPoint.x),
-            Math.round(endPoint.y)
-        ];
-
-        // Verify all points are valid numbers
-        if (!points.every(coord => Number.isFinite(coord))) {
-            console.error('Invalid coordinates detected in updatePreviewLine:', points);
             return;
         }
 

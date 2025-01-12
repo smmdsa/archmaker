@@ -3,8 +3,24 @@ import { Circle } from 'konva/lib/shapes/Circle';
 import { WallNode } from '../models/WallNode';
 import { Vector2 } from 'three';
 
+interface NodeRendererConfig {
+    radius: number;
+    color: string;
+    opacity?: number;
+}
+
 export class NodeRenderer {
-    static createNodeCircle(node: WallNode, radius: number, layer: Layer): Circle {
+    private config: NodeRendererConfig;
+
+    constructor(config: NodeRendererConfig) {
+        this.config = {
+            radius: config.radius || 5,
+            color: config.color || '#666',
+            opacity: config.opacity || 1
+        };
+    }
+
+    createNodeCircle(node: WallNode, layer: Layer): Circle {
         const pos = node.getPosition();
 
         // Ensure coordinates are valid numbers
@@ -16,7 +32,7 @@ export class NodeRenderer {
             return new Circle({
                 x: 0,
                 y: 0,
-                radius: radius,
+                radius: this.config.radius,
                 fill: 'red',
                 stroke: 'black',
                 strokeWidth: 1
@@ -26,10 +42,11 @@ export class NodeRenderer {
         const circle = new Circle({
             x: x,
             y: y,
-            radius: radius,
+            radius: this.config.radius,
             fill: '#fff',
-            stroke: '#666',
+            stroke: this.config.color,
             strokeWidth: 1,
+            opacity: this.config.opacity,
             draggable: true,
             name: 'node',
             data: {
@@ -41,17 +58,17 @@ export class NodeRenderer {
         return circle;
     }
 
-    static createPreviewCircle(position: Vector2, radius: number, layer: Layer, highlight: boolean = false): Circle {
+    createPreviewNode(position: Vector2): Circle {
         // Ensure coordinates are valid numbers
         const x = Math.round(position.x);
         const y = Math.round(position.y);
 
         if (!Number.isFinite(x) || !Number.isFinite(y)) {
-            console.error('Invalid coordinates detected in preview circle:', { x, y });
+            console.error('Invalid coordinates detected in preview node:', { x, y });
             return new Circle({
                 x: 0,
                 y: 0,
-                radius: radius,
+                radius: this.config.radius,
                 fill: 'red',
                 stroke: 'black',
                 strokeWidth: 1
@@ -61,19 +78,18 @@ export class NodeRenderer {
         const circle = new Circle({
             x: x,
             y: y,
-            radius: radius,
-            fill: highlight ? '#ccc' : '#fff',
-            stroke: '#666',
+            radius: this.config.radius,
+            fill: '#fff',
+            stroke: this.config.color,
             strokeWidth: 1,
-            opacity: 0.5,
+            opacity: this.config.opacity,
             name: 'preview-node'
         });
 
-        layer.add(circle);
         return circle;
     }
 
-    static updateNodeCircle(circle: Circle, node: WallNode): void {
+    updateNodeCircle(circle: Circle, node: WallNode): void {
         const pos = node.getPosition();
 
         // Ensure coordinates are valid numbers
@@ -88,21 +104,7 @@ export class NodeRenderer {
         circle.position({ x, y });
     }
 
-    static updatePreviewCircle(circle: Circle, position: Vector2): void {
-        // Ensure coordinates are valid numbers
-        const x = Math.round(position.x);
-        const y = Math.round(position.y);
-
-        if (!Number.isFinite(x) || !Number.isFinite(y)) {
-            console.error('Invalid coordinates detected in updatePreviewCircle:', { x, y });
-            return;
-        }
-
-        circle.position({ x, y });
-    }
-
-    static highlightNode(circle: Circle, highlight: boolean): void {
+    highlightNode(circle: Circle, highlight: boolean): void {
         circle.fill(highlight ? '#ccc' : '#fff');
-        circle.opacity(highlight ? 0.8 : 1);
     }
 } 

@@ -2,7 +2,7 @@ import { Vector2 } from 'three';
 import { WallGraph } from '../models/WallGraph';
 import { WallNode } from '../models/WallNode';
 import { Wall } from '../models/Wall';
-import { IEventManager } from '../interfaces/IEventManager';
+import { IEventManager } from '../../../core/interfaces/IEventManager';
 
 export enum WallToolMode {
     IDLE = 'IDLE',
@@ -86,8 +86,10 @@ export class WallToolState {
                 break;
             case WallToolMode.MOVING_NODE:
                 if (this.activeNode && this.isDragging) {
+                    // Update temp point for preview
+                    this.tempPoint = point.clone();
+                    // Update actual node position
                     this.activeNode.setPosition(x, y);
-                    // Node will automatically update its connected walls
                 }
                 break;
             case WallToolMode.SPLITTING_WALL:
@@ -158,7 +160,10 @@ export class WallToolState {
     }
 
     private handleMovingNodeMouseDown(point: Vector2): void {
-        // Already handled in mouseDown
+        if (!this.activeNode) return;
+        
+        // Update temp point for preview
+        this.tempPoint = point.clone();
     }
 
     private handleSplittingWallMouseDown(point: Vector2): void {
@@ -168,17 +173,18 @@ export class WallToolState {
     }
 
     private finishNodeMove(): void {
-        if (this.activeNode) {
-            const position = this.activeNode.getPosition();
+        if (this.activeNode && this.tempPoint) {
+            // Update the final position
+            this.activeNode.setPosition(this.tempPoint.x, this.tempPoint.y);
+            
             // Check for nearby nodes to merge, excluding the active node
-
-            const nearestNode = this.context.graph.findClosestNode(position, 10, this.activeNode);
+            const nearestNode = this.context.graph.findClosestNode(this.tempPoint, 10, this.activeNode);
             
             if (nearestNode) {
                 console.log('Found node to merge after move:', {
                     activeNode: this.activeNode.getId(),
                     nearestNode: nearestNode.getId(),
-                    distance: position.distanceTo(nearestNode.getPosition())
+                    distance: this.tempPoint.distanceTo(nearestNode.getPosition())
                 });
                 // Transfer connections and merge nodes
                 const connectedWalls = this.activeNode.getConnectedWalls();

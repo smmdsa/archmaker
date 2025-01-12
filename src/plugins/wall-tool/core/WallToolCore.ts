@@ -11,6 +11,7 @@ import { Line } from 'konva/lib/shapes/Line';
 import { Circle } from 'konva/lib/shapes/Circle';
 import { CanvasStore } from '../../../store/CanvasStore';
 import { IEventManager } from '../../../core/interfaces/IEventManager';
+import { Text } from 'konva/lib/shapes/Text';
 
 export interface WallToolConfig {
     defaultWallProperties: {
@@ -28,11 +29,13 @@ export class WallToolCore {
     private mainLayer: Layer | null = null;
     private previewLayer: Layer | null = null;
 
+    // Renderers
+    private readonly wallRenderer: WallRenderer;
+    private readonly nodeRenderer: NodeRenderer;
+
     // Cached Konva objects
     private wallShapes: Map<string, Line> = new Map();
     private nodeShapes: Map<string, Circle> = new Map();
-    private previewLine: Line | null = null;
-    private previewNode: Circle | null = null;
 
     constructor(
         config: WallToolConfig,
@@ -47,6 +50,17 @@ export class WallToolCore {
         };
         
         this.state = new WallToolState(context, eventManager);
+
+        // Initialize renderers
+        this.wallRenderer = new WallRenderer({
+            thickness: config.defaultWallProperties.thickness,
+            color: '#666'
+        });
+
+        this.nodeRenderer = new NodeRenderer({
+            radius: config.nodeRadius,
+            color: '#666'
+        });
     }
 
     // Layer setup
@@ -155,14 +169,14 @@ export class WallToolCore {
         // Render all walls
         const walls = this.canvasStore.getWallGraph().getAllWalls();
         walls.forEach(wall => {
-            const shape = WallRenderer.createWallLine(wall, this.mainLayer!);
+            const shape = this.wallRenderer.createWallLine(wall, this.mainLayer!);
             this.wallShapes.set(wall.getId(), shape);
         });
 
         // Render all nodes
         const nodes = this.canvasStore.getWallGraph().getAllNodes();
         nodes.forEach(node => {
-            const shape = NodeRenderer.createNodeCircle(node, this.config.nodeRadius, this.mainLayer!);
+            const shape = this.nodeRenderer.createNodeCircle(node, this.mainLayer!);
             this.nodeShapes.set(node.getId(), shape);
         });
 
@@ -177,16 +191,19 @@ export class WallToolCore {
     }
 
     private drawWalls(layer: Layer): void {
-        this.canvasStore.getWallGraph().getAllWalls().forEach(wall => {
-            const line = WallRenderer.createWallLine(wall, layer);
+        this.wallShapes.clear();
+        const walls = this.canvasStore.getWallGraph().getAllWalls();
+        walls.forEach(wall => {
+            const line = this.wallRenderer.createWallLine(wall, layer);
             this.wallShapes.set(wall.getId(), line);
-            layer.add(line);
         });
     }
 
     private drawNodes(layer: Layer): void {
-        this.canvasStore.getWallGraph().getAllNodes().forEach(node => {
-            const circle = NodeRenderer.createNodeCircle(node, this.config.nodeRadius, layer);
+        this.nodeShapes.clear();
+        const nodes = this.canvasStore.getWallGraph().getAllNodes();
+        nodes.forEach(node => {
+            const circle = this.nodeRenderer.createNodeCircle(node, layer);
             
             // Setup drag events
             circle.on('dragmove', () => {
@@ -198,7 +215,7 @@ export class WallToolCore {
                 node.getConnectedWalls().forEach(wall => {
                     const wallShape = this.wallShapes.get(wall.getId());
                     if (wallShape) {
-                        WallRenderer.updateWallLine(wallShape, wall as Wall);
+                        this.wallRenderer.updateWallLine(wallShape, wall as Wall);
                     }
                 });
             });
@@ -216,66 +233,124 @@ export class WallToolCore {
             });
 
             this.nodeShapes.set(node.getId(), circle);
-            layer.add(circle);
         });
     }
 
     private drawPreview(): void {
         if (!this.previewLayer) return;
 
+        // Clear previous preview
+        this.previewLayer.destroyChildren();
+
+        const mode = this.state.getMode();
         const startNode = this.state.getStartNode();
         const tempPoint = this.state.getTempPoint();
+        const activeNode = this.state.getActiveNode();
 
-        if (startNode && tempPoint && this.state.getMode() === WallToolMode.DRAWING) {
+        if (mode === WallToolMode.DRAWING && startNode && tempPoint) {
+            // Draw wall drawing preview
+            const previewWallRenderer = new WallRenderer({
+                thickness: this.config.defaultWallProperties.thickness,
+                color: '#888888',
+                opacity: 0.5,
+                dashEnabled: true,
+                dash: [5, 5]
+            });
+
+            const previewWall = previewWallRenderer.createPreviewWall(
+                startNode.getPosition(),
+                tempPoint,
+                this.config.defaultWallProperties.thickness
+            );
+            this.previewLayer!.add(previewWall);
+
+            // Draw preview node at cursor position
+            const previewNodeRenderer = new NodeRenderer({
+                radius: this.config.nodeRadius,
+                color: '#888888',
+                opacity: 0.5
+            });
+
+            const previewNode = previewNodeRenderer.createPreviewNode(tempPoint);
+            this.previewLayer!.add(previewNode);
+
+            // Draw preview dimensions
             const startPos = startNode.getPosition();
-
-            // Draw preview line
-            if (!this.previewLine) {
-                this.previewLine = WallRenderer.createPreviewLine(
-                    startPos,
-                    tempPoint,
-                    this.previewLayer
-                );
-            } else {
-                WallRenderer.updatePreviewLine(
-                    this.previewLine,
-                    startPos,
-                    tempPoint
-                );
+            const dx = tempPoint.x - startPos.x;
+            const dy = tempPoint.y - startPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Only show dimensions if wall is long enough
+            if (distance > 20) {
+                const dimensionText = Math.round(distance) + ' cm';
+                const textX = startPos.x + dx / 2;
+                const textY = startPos.y + dy / 2;
+                
+                const dimensionLabel = new Text({
+                    x: textX,
+                    y: textY,
+                    text: dimensionText,
+                    fontSize: 12,
+                    fill: '#666666',
+                    padding: 4,
+                    offsetX: 0,
+                    offsetY: -10
+                });
+                this.previewLayer!.add(dimensionLabel);
             }
+        } else if (mode === WallToolMode.MOVING_NODE && activeNode && tempPoint) {
+            // Draw wall movement preview
+            const previewWallRenderer = new WallRenderer({
+                thickness: this.config.defaultWallProperties.thickness,
+                color: '#888888',
+                opacity: 0.5,
+                dashEnabled: true,
+                dash: [5, 5]
+            });
 
-            // Draw preview node
-            if (!this.previewNode) {
-                this.previewNode = NodeRenderer.createPreviewCircle(
-                    tempPoint,
-                    this.config.nodeRadius,
-                    this.previewLayer,
-                    false
+            // Draw preview of all connected walls
+            activeNode.getConnectedWalls().forEach(wall => {
+                const startNode = wall.getStartNode();
+                const endNode = wall.getEndNode();
+                
+                // Skip if either node is missing
+                if (!startNode || !endNode || !(startNode instanceof WallNode) || !(endNode instanceof WallNode)) {
+                    return;
+                }
+
+                const otherNode = startNode === activeNode ? endNode : startNode;
+                const previewWall = previewWallRenderer.createPreviewWall(
+                    startNode === activeNode ? tempPoint : otherNode.getPosition(),
+                    endNode === activeNode ? tempPoint : otherNode.getPosition(),
+                    wall.getProperties().thickness || this.config.defaultWallProperties.thickness
                 );
-            } else {
-                NodeRenderer.updatePreviewCircle(
-                    this.previewNode,
-                    tempPoint
-                );
+                this.previewLayer!.add(previewWall);
+            });
+
+            // Draw preview node at cursor position
+            const previewNodeRenderer = new NodeRenderer({
+                radius: this.config.nodeRadius,
+                color: '#888888',
+                opacity: 0.5
+            });
+
+            const previewNode = previewNodeRenderer.createPreviewNode(tempPoint);
+            this.previewLayer!.add(previewNode);
+
+            // Check for nearby nodes to show potential merge
+            const nearestNode = this.findNearestNode(tempPoint, activeNode);
+            if (nearestNode) {
+                const highlightNodeRenderer = new NodeRenderer({
+                    radius: this.config.nodeRadius,
+                    color: '#4CAF50',
+                    opacity: 0.8
+                });
+                const highlightNode = highlightNodeRenderer.createPreviewNode(nearestNode.getPosition());
+                this.previewLayer!.add(highlightNode);
             }
         }
 
-        const activeWall = this.state.getActiveWall();
-        if (activeWall && tempPoint && this.state.getMode() === WallToolMode.SPLITTING_WALL) {
-            if (!this.previewNode) {
-                this.previewNode = NodeRenderer.createPreviewCircle(
-                    tempPoint,
-                    this.config.nodeRadius,
-                    this.previewLayer,
-                    true
-                );
-            } else {
-                NodeRenderer.updatePreviewCircle(
-                    this.previewNode,
-                    tempPoint
-                );
-            }
-        }
+        this.previewLayer.batchDraw();
     }
 
     // Helper methods
@@ -445,7 +520,7 @@ export class WallToolCore {
         node.getConnectedWalls().forEach(wall => {
             const wallShape = this.wallShapes.get(wall.getId());
             if (wallShape) {
-                WallRenderer.updateWallLine(wallShape, wall as Wall);
+                this.wallRenderer.updateWallLine(wallShape, wall as Wall);
             }
         });
     }

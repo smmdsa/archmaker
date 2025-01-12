@@ -44,6 +44,10 @@ export class CanvasStore {
     private readonly graphs: GraphRegistry;
     private readonly layers$ = new BehaviorSubject<CanvasLayers | null>(null);
     private readonly redraw$ = new Subject<void>();
+    
+    // Add renderers as instance properties
+    private readonly wallRenderer: WallRenderer;
+    private readonly nodeRenderer: NodeRenderer;
 
     private constructor(
         private readonly eventManager: IEventManager,
@@ -56,6 +60,17 @@ export class CanvasStore {
             // doors: new DoorGraph(),
             // windows: new WindowGraph()
         };
+
+        // Initialize renderers
+        this.wallRenderer = new WallRenderer({
+            thickness: 10, // Default thickness
+            color: '#666'
+        });
+
+        this.nodeRenderer = new NodeRenderer({
+            radius: 5,
+            color: '#666'
+        });
         
         this.setupSubscriptions();
         this.logger.info('CanvasStore singleton initialized with graphs', {
@@ -157,13 +172,13 @@ export class CanvasStore {
         // Render walls
         const walls = this.graphs.walls.getAllWalls();
         walls.forEach(wall => {
-            WallRenderer.createWallLine(wall, layer);
+            this.wallRenderer.createWallLine(wall, layer);
         });
 
         // Render nodes
         const nodes = this.graphs.walls.getAllNodes();
         nodes.forEach(node => {
-            NodeRenderer.createNodeCircle(node, 5, layer);
+            this.nodeRenderer.createNodeCircle(node, layer);
         });
     }
 
