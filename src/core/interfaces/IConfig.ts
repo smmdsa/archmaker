@@ -4,18 +4,20 @@ export interface PluginConfig {
     id: string;
     version: string;
     enabled: boolean;
-    drawing?: IDrawingToolConfig;
-    [key: string]: any;
+    settings: Record<string, any>;
 }
 
 export interface IConfigManager {
     getPluginConfig(pluginId: string): PluginConfig | undefined;
-    setPluginConfig(pluginId: string, config: Partial<PluginConfig>): void;
+    setPluginConfig(pluginId: string, config: Partial<PluginConfig>): Promise<void>;
+    updatePluginConfig(pluginId: string, config: Partial<PluginConfig>): Promise<void>;
+    saveConfig(): Promise<void>;
+    loadConfig(): Promise<void>;
+    subscribe(callback: () => void): () => void;
 }
 
 export interface GlobalConfig {
-    plugins: Record<string, IPluginConfig>;
+    plugins: Record<string, PluginConfig>;
     theme: 'light' | 'dark';
     language: string;
-    debug: boolean;
 } 

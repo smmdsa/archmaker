@@ -20,6 +20,11 @@ interface WallDeletedEvent {
     wallId: string;
 }
 
+interface GraphChangedEvent {
+    nodeCount: number;
+    wallCount: number;
+}
+
 export interface CanvasLayers {
     mainLayer: Layer;
     tempLayer: Layer;
@@ -46,7 +51,7 @@ export class CanvasStore {
     ) {
         // Initialize all graphs
         this.graphs = {
-            walls: new WallGraph(),
+            walls: new WallGraph(this.eventManager),
             // Future initialization:
             // doors: new DoorGraph(),
             // windows: new WindowGraph()
@@ -96,11 +101,11 @@ export class CanvasStore {
             this.redraw$.next();
         });
 
-        // Future event subscriptions:
-        // Door events
-        // this.eventManager.on<DoorCreatedEvent>('door:created', ...);
-        // Window events
-        // this.eventManager.on<WindowCreatedEvent>('window:created', ...);
+        // Graph change events
+        this.eventManager.on<GraphChangedEvent>('graph:changed', (event) => {
+            this.logger.info('Graph changed in CanvasStore', event);
+            this.redraw$.next();
+        });
 
         // Subscribe to redraw events
         this.redraw$.subscribe(() => {

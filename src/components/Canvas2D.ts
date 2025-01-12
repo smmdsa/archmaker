@@ -1,26 +1,20 @@
 import Konva from 'konva';
-import { ProjectStore } from '../store/ProjectStore';
 import { IEventManager } from '../core/interfaces/IEventManager';
 import { ILogger } from '../core/interfaces/ILogger';
-import { ToolService } from '../core/tools/services/ToolService';
 import { Point } from '../core/types/geometry';
-import { DrawingManager } from '../core/drawing/DrawingManager';
-import { DrawEvent, DrawEventType } from '../core/events/DrawEvents';
+import { CanvasStore } from '../store/CanvasStore';
 
 export class Canvas2D {
     private stage: Konva.Stage;
     private mainLayer: Konva.Layer;
     private tempLayer: Konva.Layer;
     private gridLayer: Konva.Layer;
-    private unsubscribeStore: (() => void) | null = null;
+    private readonly canvasStore: CanvasStore;
 
     constructor(
         containerId: string,
-        private readonly store: ProjectStore,
-        private readonly toolService: ToolService,
         private readonly eventManager: IEventManager,
-        private readonly logger: ILogger,
-        private readonly drawingManager: DrawingManager
+        private readonly logger: ILogger
     ) {
         this.logger.info('Initializing Canvas2D component...');
         
@@ -29,27 +23,32 @@ export class Canvas2D {
             throw new Error(`Canvas container not found: ${containerId}`);
         }
 
-        // Inicializar el stage de Konva
+        // Initialize Konva stage
         this.stage = new Konva.Stage({
             container: containerId,
             width: container.clientWidth,
             height: container.clientHeight
         });
 
-        // Crear capas
+        // Create layers
         this.gridLayer = new Konva.Layer();
         this.mainLayer = new Konva.Layer();
         this.tempLayer = new Konva.Layer();
 
-        // Agregar capas al stage
+        // Add layers to stage
         this.stage.add(this.gridLayer);
         this.stage.add(this.mainLayer);
         this.stage.add(this.tempLayer);
 
-        // Asegurarnos de que el drawingManager esté inicializado
-        if (!this.drawingManager) {
-            throw new Error('DrawingManager is required but was not provided');
-        }
+        // Initialize CanvasStore
+        this.canvasStore = CanvasStore.getInstance(eventManager, logger);
+        
+        // Set layers in CanvasStore
+        this.canvasStore.setLayers({
+            mainLayer: this.mainLayer,
+            tempLayer: this.tempLayer,
+            gridLayer: this.gridLayer
+        });
 
         this.logger.info('Canvas2D layers initialized:', {
             gridLayer: this.gridLayer.id(),
@@ -57,7 +56,7 @@ export class Canvas2D {
             tempLayer: this.tempLayer.id()
         });
 
-        // Notificar a las herramientas sobre las capas disponibles
+        // Notify tools about available layers
         this.eventManager.emit('canvas:layers', {
             mainLayer: this.mainLayer,
             tempLayer: this.tempLayer,
@@ -68,62 +67,13 @@ export class Canvas2D {
     }
 
     private initialize(): void {
-        // Configurar eventos del canvas
+        // Set up canvas events
         this.setupEventListeners();
 
-        // Dibujar la cuadrícula inicial
+        // Draw initial grid
         this.drawGrid();
 
-        // Suscribirse a eventos de dibujo
-        this.eventManager.on<DrawEvent>('draw:event', (event) => {
-            this.logger.info('Received draw event in Canvas2D:', {
-                type: event.type,
-                objectType: event.objectType,
-                id: event.id,
-                hasDrawingManager: !!this.drawingManager,
-                mainLayerId: this.mainLayer.id()
-            });
-
-            if (!this.drawingManager) {
-                this.logger.error('DrawingManager not initialized');
-                return;
-            }
-
-            switch (event.type) {
-                case DrawEventType.CREATE:
-                    const drawable = this.drawingManager.getDrawable(event.id);
-                    if (drawable) {
-                        drawable.render(this.mainLayer);
-                        this.mainLayer.batchDraw();
-                    } else {
-                        this.logger.warn('Drawable not found for CREATE event:', {
-                            id: event.id,
-                            registeredFactories: this.drawingManager.getRegisteredFactoryTypes()
-                        });
-                    }
-                    break;
-                case DrawEventType.UPDATE:
-                    const updatableDrawable = this.drawingManager.getDrawable(event.id);
-                    if (updatableDrawable) {
-                        updatableDrawable.update(event.metadata);
-                        this.mainLayer.batchDraw();
-                    } else {
-                        this.logger.warn('Drawable not found for UPDATE event:', event.id);
-                    }
-                    break;
-                case DrawEventType.DELETE:
-                    const deletableDrawable = this.drawingManager.getDrawable(event.id);
-                    if (deletableDrawable) {
-                        deletableDrawable.destroy();
-                        this.mainLayer.batchDraw();
-                    } else {
-                        this.logger.warn('Drawable not found for DELETE event:', event.id);
-                    }
-                    break;
-            }
-        });
-
-        // Manejar redimensionamiento de ventana
+        // Handle window resizing
         window.addEventListener('resize', this.handleResize);
     }
 
@@ -173,7 +123,7 @@ export class Canvas2D {
 
         this.gridLayer.destroyChildren();
 
-        // Líneas verticales
+        // Vertical lines
         for (let x = 0; x < width; x += spacing) {
             this.gridLayer.add(new Konva.Line({
                 points: [x, 0, x, height],
@@ -182,7 +132,7 @@ export class Canvas2D {
             }));
         }
 
-        // Líneas horizontales
+        // Horizontal lines
         for (let y = 0; y < height; y += spacing) {
             this.gridLayer.add(new Konva.Line({
                 points: [0, y, width, y],
@@ -207,9 +157,6 @@ export class Canvas2D {
     }
 
     dispose(): void {
-        if (this.unsubscribeStore) {
-            this.unsubscribeStore();
-        }
         window.removeEventListener('resize', this.handleResize);
         this.stage.destroy();
     }

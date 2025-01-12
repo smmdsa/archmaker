@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { IWall, IWallNode, IWallProperties } from './interfaces';
 import { WallNode } from './WallNode';
 
+export type WallProperties = IWallProperties;
+
 export class Wall implements IWall {
     private readonly id: string;
     private startNode: IWallNode;
@@ -55,11 +57,11 @@ export class Wall implements IWall {
         this.direction = this.calculateDirection();
     }
 
-    split(point: Vector2): { node: IWallNode; walls: [Wall, Wall] } {
+    split(point: Vector2): { node: WallNode; walls: [Wall, Wall] } {
         const newNode = new WallNode(point.x, point.y);
         
-        const wall1 = new Wall(this.startNode, newNode, this.properties);
-        const wall2 = new Wall(newNode, this.endNode, this.properties);
+        const wall1 = new Wall(this.startNode as WallNode, newNode, this.properties);
+        const wall2 = new Wall(newNode, this.endNode as WallNode, this.properties);
 
         return {
             node: newNode,

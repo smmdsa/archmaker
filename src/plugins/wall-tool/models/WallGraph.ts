@@ -1,6 +1,7 @@
 import { Vector2 } from 'three';
 import { Wall, WallProperties } from './Wall';
 import { WallNode } from './WallNode';
+import { IEventManager } from '../../../core/interfaces/IEventManager';
 
 export interface WallIntersection {
     wall: Wall;
@@ -11,16 +12,19 @@ export interface WallIntersection {
 export class WallGraph {
     private nodes: Map<string, WallNode>;
     private walls: Map<string, Wall>;
+    private eventManager: IEventManager;
 
-    constructor() {
+    constructor(eventManager: IEventManager) {
         this.nodes = new Map();
         this.walls = new Map();
+        this.eventManager = eventManager;
     }
 
     // Node operations
     addNode(x: number, y: number): WallNode {
         const node = new WallNode(x, y);
         this.nodes.set(node.getId(), node);
+        this.emitGraphChanged();
         return node;
     }
 
@@ -39,6 +43,7 @@ export class WallGraph {
         });
 
         this.nodes.delete(id);
+        this.emitGraphChanged();
     }
 
     // Wall operations
@@ -54,6 +59,7 @@ export class WallGraph {
         startNode.addWall(wall);
         endNode.addWall(wall);
         
+        this.emitGraphChanged();
         return wall;
     }
 
@@ -68,9 +74,17 @@ export class WallGraph {
         if (endNode) endNode.removeWall(id);
 
         this.walls.delete(id);
+        this.emitGraphChanged();
     }
 
     // Graph operations
+    private emitGraphChanged(): void {
+        this.eventManager.emit('graph:changed', {
+            nodeCount: this.nodes.size,
+            wallCount: this.walls.size
+        });
+    }
+
     findClosestNode(point: Vector2, threshold: number = 10): WallNode | null {
         let closest: WallNode | null = null;
         let minDistance = threshold;

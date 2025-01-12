@@ -70,7 +70,7 @@ export class WallTool extends DrawingTool {
             },
             snapThreshold: 20,
             nodeRadius: 5
-        }, canvasStore);
+        }, canvasStore, eventManager);
 
         this.commandManager = new CommandManager();
 

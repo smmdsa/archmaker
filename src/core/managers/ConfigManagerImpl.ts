@@ -2,6 +2,8 @@ import { IConfigManager } from '../interfaces/IConfig';
 import { ILogger } from '../interfaces/ILogger';
 
 interface PluginConfig {
+    id: string;
+    version: string;
     enabled: boolean;
     settings: Record<string, any>;
 }
@@ -12,8 +14,10 @@ export class ConfigManagerImpl implements IConfigManager {
     constructor(private readonly logger: ILogger) {}
 
     async initialize(): Promise<void> {
-        // Cargar configuración por defecto
+        // Load default configuration
         this.config.set('wall-tool', {
+            id: 'wall-tool',
+            version: '1.0.0',
             enabled: true,
             settings: {
                 defaultHeight: 280,
@@ -23,6 +27,8 @@ export class ConfigManagerImpl implements IConfigManager {
         });
 
         this.config.set('room-tool', {
+            id: 'room-tool',
+            version: '1.0.0',
             enabled: true,
             settings: {
                 defaultHeight: 280,
@@ -34,15 +40,14 @@ export class ConfigManagerImpl implements IConfigManager {
         this.logger.info('Config Manager initialized');
     }
 
-    getPluginConfig(pluginId: string): PluginConfig {
-        return this.config.get(pluginId) || {
-            enabled: true,
-            settings: {}
-        };
+    getPluginConfig(pluginId: string): PluginConfig | undefined {
+        return this.config.get(pluginId);
     }
 
-    async updatePluginConfig(pluginId: string, config: Partial<PluginConfig>): Promise<void> {
+    async setPluginConfig(pluginId: string, config: Partial<PluginConfig>): Promise<void> {
         const currentConfig = this.getPluginConfig(pluginId);
+        if (!currentConfig) return;
+
         this.config.set(pluginId, {
             ...currentConfig,
             ...config,
@@ -52,6 +57,13 @@ export class ConfigManagerImpl implements IConfigManager {
             }
         });
         this.logger.info(`Updated config for plugin: ${pluginId}`, config);
+    }
+
+    async updatePluginConfig(pluginId: string, config: Partial<PluginConfig>): Promise<void> {
+        const currentConfig = this.getPluginConfig(pluginId);
+        if (!currentConfig) return;
+
+        await this.setPluginConfig(pluginId, config);
     }
 
     async saveConfig(): Promise<void> {

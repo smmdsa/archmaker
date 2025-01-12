@@ -2,6 +2,7 @@ import { Vector2 } from 'three';
 import { WallGraph } from '../models/WallGraph';
 import { WallNode } from '../models/WallNode';
 import { Wall } from '../models/Wall';
+import { IEventManager } from '../interfaces/IEventManager';
 
 export enum WallToolMode {
     IDLE = 'IDLE',
@@ -30,7 +31,10 @@ export class WallToolState {
     private activeWall: Wall | null = null;
     private tempPoint: Vector2 | null = null;
 
-    constructor(context: WallToolStateContext) {
+    constructor(
+        context: WallToolStateContext,
+        private readonly eventManager: IEventManager
+    ) {
         this.context = context;
     }
 
@@ -144,7 +148,10 @@ export class WallToolState {
         const endNode = existingNode || this.context.graph.addNode(point.x, point.y);
 
         // Create the wall
-        this.context.graph.createWall(this.startNode, endNode, this.context.defaultProperties);
+        const wall = this.context.graph.createWall(this.startNode, endNode, this.context.defaultProperties);
+        
+        // Emit wall created event
+        this.eventManager.emit('wall:created', { wall });
 
         // Continue drawing from this node
         this.startNode = endNode;

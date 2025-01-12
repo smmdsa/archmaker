@@ -10,6 +10,7 @@ import { NodeRenderer } from '../renderers/NodeRenderer';
 import { Line } from 'konva/lib/shapes/Line';
 import { Circle } from 'konva/lib/shapes/Circle';
 import { CanvasStore } from '../../../store/CanvasStore';
+import { IEventManager } from '../../../core/interfaces/IEventManager';
 
 export interface WallToolConfig {
     defaultWallProperties: {
@@ -35,7 +36,8 @@ export class WallToolCore {
 
     constructor(
         config: WallToolConfig,
-        private readonly canvasStore: CanvasStore
+        private readonly canvasStore: CanvasStore,
+        private readonly eventManager: IEventManager
     ) {
         this.config = config;
         
@@ -44,7 +46,7 @@ export class WallToolCore {
             defaultProperties: config.defaultWallProperties
         };
         
-        this.state = new WallToolState(context);
+        this.state = new WallToolState(context, eventManager);
     }
 
     // Layer setup
@@ -57,7 +59,51 @@ export class WallToolCore {
     // Event handlers
     handleMouseDown(e: KonvaEventObject<MouseEvent>): void {
         const point = this.getMousePosition(e);
-        this.state.handleMouseDown(point);
+        
+        // Check for nearby nodes before handling mouse down
+        const nearestNode = this.findNearestNode(point);
+        
+        if (this.state.getMode() === WallToolMode.DRAWING) {
+            // If we're drawing and find a nearby node, connect to it
+            if (nearestNode) {
+                const startNode = this.state.getStartNode();
+                if (startNode && startNode !== nearestNode) {
+                    const wall = this.canvasStore.getWallGraph().createWall(startNode, nearestNode, this.config.defaultWallProperties);
+                    // Emit wall created event
+                    this.eventManager.emit('wall:created', { wall });
+                }
+                this.state.setMode(WallToolMode.IDLE);
+            } else {
+                // No nearby node, create a new one through state
+                this.state.handleMouseDown(point);
+                
+                // After state creates the node, check for possible merges
+                const currentNode = this.state.getStartNode();
+                if (currentNode) {
+                    const nodePos = currentNode.getPosition();
+                    this.handleNodePositionUpdate(currentNode, new Vector2(nodePos.x, nodePos.y));
+                }
+            }
+        } else if (this.state.getMode() === WallToolMode.IDLE) {
+            if (nearestNode) {
+                // Start drawing from the existing node
+                this.state.handleMouseDown(nearestNode.getPosition());
+            } else {
+                // Create new node and start drawing
+                this.state.handleMouseDown(point);
+                
+                // Check for possible merges after node creation
+                const currentNode = this.state.getStartNode();
+                if (currentNode) {
+                    const nodePos = currentNode.getPosition();
+                    this.handleNodePositionUpdate(currentNode, new Vector2(nodePos.x, nodePos.y));
+                }
+            }
+        } else {
+            // Handle other modes
+            this.state.handleMouseDown(point);
+        }
+        
         this.redrawAll();
     }
 
@@ -145,6 +191,7 @@ export class WallToolCore {
             // Setup drag events
             circle.on('dragmove', () => {
                 const pos = circle.position();
+                // Just update the node and wall positions during drag
                 node.setPosition(pos.x, pos.y);
                 
                 // Update connected walls
@@ -154,6 +201,18 @@ export class WallToolCore {
                         WallRenderer.updateWallLine(wallShape, wall as Wall);
                     }
                 });
+            });
+
+            circle.on('dragend', () => {
+                const pos = circle.position();
+                const point = new Vector2(pos.x, pos.y);
+                
+                // Check for merges after drag ends
+                const nearestNode = this.findNearestNode(point, node);
+                if (nearestNode) {
+                    this.mergeNodes(nearestNode, node);
+                    this.redrawAll();
+                }
             });
 
             this.nodeShapes.set(node.getId(), circle);
@@ -255,5 +314,139 @@ export class WallToolCore {
         y = Number.isFinite(y) ? Math.round(y) : 0;
 
         return new Vector2(x, y);
+    }
+
+    private mergeNodes(movedNode: WallNode, targetNode: WallNode): WallNode {
+        const graph = this.canvasStore.getWallGraph();
+        const connectedWalls = targetNode.getConnectedWalls();
+
+        console.log('Merging nodes:', {
+            movedNode: {
+                id: movedNode.getId(),
+                position: movedNode.getPosition(),
+                connectedWalls: movedNode.getConnectedWalls().map(w => w.getId())
+            },
+            targetNode: {
+                id: targetNode.getId(),
+                position: targetNode.getPosition(),
+                connectedWalls: connectedWalls.map(w => w.getId())
+            }
+        });
+
+        // Transfer all connections from targetNode to movedNode
+        connectedWalls.forEach(wall => {
+            const wallInstance = wall as Wall;
+            if (wallInstance.getStartNode() === targetNode) {
+                console.log('Transferring wall connection:', {
+                    wallId: wallInstance.getId(),
+                    from: 'start',
+                    oldNode: targetNode.getId(),
+                    newNode: movedNode.getId()
+                });
+                // Create new wall connecting movedNode to the other end
+                graph.createWall(movedNode, wallInstance.getEndNode() as WallNode, wallInstance.getProperties());
+            } else if (wallInstance.getEndNode() === targetNode) {
+                console.log('Transferring wall connection:', {
+                    wallId: wallInstance.getId(),
+                    from: 'end',
+                    oldNode: targetNode.getId(),
+                    newNode: movedNode.getId()
+                });
+                // Create new wall connecting the start to movedNode
+                graph.createWall(wallInstance.getStartNode() as WallNode, movedNode, wallInstance.getProperties());
+            }
+            // Remove the old wall
+            graph.removeWall(wallInstance.getId());
+        });
+
+        // Remove the target node
+        graph.removeNode(targetNode.getId());
+        console.log('Merge complete:', {
+            remainingNode: movedNode.getId(),
+            newConnections: movedNode.getConnectedWalls().map(w => w.getId())
+        });
+
+        return movedNode;
+    }
+
+    private findNearestNode(point: Vector2, excludeNode?: WallNode): WallNode | null {
+        const nodes = this.canvasStore.getWallGraph().getAllNodes();
+        let nearestNode: WallNode | null = null;
+        let minDistance = this.config.snapThreshold;
+
+        nodes.forEach(node => {
+            // Skip the excluded node if provided
+            if (excludeNode && node.getId() === excludeNode.getId()) {
+                return;
+            }
+
+            const nodePos = node.getPosition();
+            const distance = point.distanceTo(new Vector2(nodePos.x, nodePos.y));
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestNode = node;
+            }
+        });
+
+        return nearestNode;
+    }
+
+    private handleWallCreation(startNode: WallNode, endPoint: Vector2): void {
+        // Check for nearby nodes at the end point
+        const nearestNode = this.findNearestNode(endPoint);
+        if (nearestNode) {
+            // Create wall to existing node
+            const wall = this.canvasStore.getWallGraph().createWall(startNode, nearestNode, this.config.defaultWallProperties);
+            // Emit wall created event
+            this.eventManager.emit('wall:created', { wall });
+        } else {
+            // Create new node and wall
+            const endNode = this.canvasStore.getWallGraph().addNode(endPoint.x, endPoint.y);
+            const wall = this.canvasStore.getWallGraph().createWall(startNode, endNode, this.config.defaultWallProperties);
+            // Emit wall created event
+            this.eventManager.emit('wall:created', { wall });
+        }
+    }
+
+    // Node position middleware
+    private handleNodePositionUpdate(node: WallNode, position: Vector2): void {
+        console.log('Handling node position update:', {
+            nodeId: node.getId(),
+            oldPosition: node.getPosition(),
+            newPosition: position,
+            connectedWalls: node.getConnectedWalls().map(w => w.getId())
+        });
+
+        // First update the position
+        node.setPosition(position.x, position.y);
+
+        // Then check for possible merges
+        const nearestNode = this.findNearestNode(position, node);
+        console.log('Checking for nearby nodes:', {
+            nodeId: node.getId(),
+            position: position,
+            foundNearbyNode: nearestNode ? {
+                id: nearestNode.getId(),
+                position: nearestNode.getPosition(),
+                distance: position.distanceTo(nearestNode.getPosition())
+            } : null,
+            snapThreshold: this.config.snapThreshold
+        });
+
+        if (nearestNode) {
+            console.log('Found nearby node, initiating merge');
+            this.mergeNodes(nearestNode, node);
+            this.redrawAll();
+            return;
+        }
+
+        console.log('No merge needed, updating connected walls');
+        // If no merge occurred, just update connected walls
+        node.getConnectedWalls().forEach(wall => {
+            const wallShape = this.wallShapes.get(wall.getId());
+            if (wallShape) {
+                WallRenderer.updateWallLine(wallShape, wall as Wall);
+            }
+        });
     }
 } 

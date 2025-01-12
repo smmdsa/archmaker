@@ -142,9 +142,9 @@ async function initializeApp() {
         new Topbar('topbar', topbarService, eventManager, logger);
         logger.info('Topbar component initialized');
 
-        // Inicializar Canvas2D
+        // Initialize Canvas2D
         logger.info('Initializing Canvas2D component...');
-        new Canvas2D('editor', projectStore, toolService, eventManager, logger, drawingManager);
+        new Canvas2D('editor', eventManager, logger);
         logger.info('Canvas2D component initialized');
 
         logger.info('Application initialized successfully');
