@@ -9,6 +9,7 @@ import { WallRenderer } from '../renderers/WallRenderer';
 import { NodeRenderer } from '../renderers/NodeRenderer';
 import { Line } from 'konva/lib/shapes/Line';
 import { Circle } from 'konva/lib/shapes/Circle';
+import { CanvasStore } from '../../../store/CanvasStore';
 
 export interface WallToolConfig {
     defaultWallProperties: {
@@ -21,7 +22,6 @@ export interface WallToolConfig {
 }
 
 export class WallToolCore {
-    private readonly graph: WallGraph;
     private readonly state: WallToolState;
     private readonly config: WallToolConfig;
     private mainLayer: Layer | null = null;
@@ -33,12 +33,14 @@ export class WallToolCore {
     private previewLine: Line | null = null;
     private previewNode: Circle | null = null;
 
-    constructor(config: WallToolConfig) {
+    constructor(
+        config: WallToolConfig,
+        private readonly canvasStore: CanvasStore
+    ) {
         this.config = config;
-        this.graph = new WallGraph();
         
         const context: WallToolStateContext = {
-            graph: this.graph,
+            graph: this.canvasStore.getWallGraph(),
             defaultProperties: config.defaultWallProperties
         };
         
@@ -83,78 +85,42 @@ export class WallToolCore {
 
     // Graph operations
     getAllWalls(): Wall[] {
-        return this.graph.getAllWalls();
+        return this.canvasStore.getWallGraph().getAllWalls();
     }
 
     getAllNodes(): WallNode[] {
-        return this.graph.getAllNodes();
+        return this.canvasStore.getWallGraph().getAllNodes();
     }
 
     clear(): void {
-        this.graph.clear();
+        this.canvasStore.getWallGraph().clear();
         this.redrawAll();
     }
 
-    // Helper methods
-    private getMousePosition(e: KonvaEventObject<MouseEvent>): Vector2 {
-        let x = 0;
-        let y = 0;
+    // Rendering methods
+    redrawAll(): void {
+        if (!this.mainLayer) return;
 
-        try {
-            // First try to get stage pointer position
-            const stage = e.target.getStage();
-            if (stage) {
-                const point = stage.getPointerPosition();
-                if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
-                    x = point.x;
-                    y = point.y;
-                }
-            }
-
-            // If stage coordinates are not available, fall back to event coordinates
-            if (x === 0 && y === 0 && e.evt) {
-                const rect = (e.evt.target as HTMLElement)?.getBoundingClientRect?.();
-                if (rect) {
-                    x = e.evt.clientX - rect.left;
-                    y = e.evt.clientY - rect.top;
-                } else {
-                    x = e.evt.clientX || 0;
-                    y = e.evt.clientY || 0;
-                }
-            }
-        } catch (error) {
-            console.warn('Error getting mouse position, using fallback coordinates');
-        }
-
-        // Ensure final coordinates are valid numbers
-        x = Number.isFinite(x) ? Math.round(x) : 0;
-        y = Number.isFinite(y) ? Math.round(y) : 0;
-
-        return new Vector2(x, y);
-    }
-
-    // Drawing methods
-    private redrawAll(): void {
-        if (!this.mainLayer || !this.previewLayer) return;
-
-        this.mainLayer.destroyChildren();
-        this.previewLayer.destroyChildren();
-
-        // Clear cached shapes
+        // Clear existing shapes
         this.wallShapes.clear();
         this.nodeShapes.clear();
-        this.previewLine = null;
-        this.previewNode = null;
+        this.mainLayer.destroyChildren();
 
-        // Draw all permanent walls and nodes
-        this.drawWalls(this.mainLayer);
-        this.drawNodes(this.mainLayer);
+        // Render all walls
+        const walls = this.canvasStore.getWallGraph().getAllWalls();
+        walls.forEach(wall => {
+            const shape = WallRenderer.createWallLine(wall, this.mainLayer!);
+            this.wallShapes.set(wall.getId(), shape);
+        });
 
-        // Draw preview elements
-        this.drawPreview();
+        // Render all nodes
+        const nodes = this.canvasStore.getWallGraph().getAllNodes();
+        nodes.forEach(node => {
+            const shape = NodeRenderer.createNodeCircle(node, this.config.nodeRadius, this.mainLayer!);
+            this.nodeShapes.set(node.getId(), shape);
+        });
 
         this.mainLayer.batchDraw();
-        this.previewLayer.batchDraw();
     }
 
     private redrawPreview(): void {
@@ -165,7 +131,7 @@ export class WallToolCore {
     }
 
     private drawWalls(layer: Layer): void {
-        this.graph.getAllWalls().forEach(wall => {
+        this.canvasStore.getWallGraph().getAllWalls().forEach(wall => {
             const line = WallRenderer.createWallLine(wall, layer);
             this.wallShapes.set(wall.getId(), line);
             layer.add(line);
@@ -173,7 +139,7 @@ export class WallToolCore {
     }
 
     private drawNodes(layer: Layer): void {
-        this.graph.getAllNodes().forEach(node => {
+        this.canvasStore.getWallGraph().getAllNodes().forEach(node => {
             const circle = NodeRenderer.createNodeCircle(node, this.config.nodeRadius, layer);
             
             // Setup drag events
@@ -251,5 +217,43 @@ export class WallToolCore {
                 );
             }
         }
+    }
+
+    // Helper methods
+    private getMousePosition(e: KonvaEventObject<MouseEvent>): Vector2 {
+        let x = 0;
+        let y = 0;
+
+        try {
+            // First try to get stage pointer position
+            const stage = e.target.getStage();
+            if (stage) {
+                const point = stage.getPointerPosition();
+                if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+                    x = point.x;
+                    y = point.y;
+                }
+            }
+
+            // If stage coordinates are not available, fall back to event coordinates
+            if (x === 0 && y === 0 && e.evt) {
+                const rect = (e.evt.target as HTMLElement)?.getBoundingClientRect?.();
+                if (rect) {
+                    x = e.evt.clientX - rect.left;
+                    y = e.evt.clientY - rect.top;
+                } else {
+                    x = e.evt.clientX || 0;
+                    y = e.evt.clientY || 0;
+                }
+            }
+        } catch (error) {
+            console.warn('Error getting mouse position, using fallback coordinates');
+        }
+
+        // Ensure final coordinates are valid numbers
+        x = Number.isFinite(x) ? Math.round(x) : 0;
+        y = Number.isFinite(y) ? Math.round(y) : 0;
+
+        return new Vector2(x, y);
     }
 } 

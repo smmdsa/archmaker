@@ -7,15 +7,16 @@ import { getDistance } from '../utils/geometry';
 import { WallCreationParams, IWallService } from './IWallService';
 import { Wall } from '../models/Wall';
 import { IWallProperties } from '../models/interfaces';
+import { CanvasStore } from '../../../store/CanvasStore';
+import { WallNode } from '../models/WallNode';
 
 export class WallService implements IWallService {
-    private readonly graph: WallGraph;
-
     constructor(
         private readonly eventManager: IEventManager,
-        private readonly logger: ILogger
+        private readonly logger: ILogger,
+        private readonly canvasStore: CanvasStore
     ) {
-        this.graph = new WallGraph();
+        this.logger.info('WallService initialized');
     }
 
     private toIWall(wall: Wall): IWall {
@@ -31,12 +32,14 @@ export class WallService implements IWallService {
 
     async createWall(params: WallCreationParams): Promise<IWall> {
         try {
+            const graph = this.canvasStore.getWallGraph();
+
             // Create nodes for start and end points
-            const startNode = this.graph.addNode(params.startPoint.x, params.startPoint.y);
-            const endNode = this.graph.addNode(params.endPoint.x, params.endPoint.y);
+            const startNode = graph.addNode(params.startPoint.x, params.startPoint.y);
+            const endNode = graph.addNode(params.endPoint.x, params.endPoint.y);
 
             // Create wall between nodes
-            const wall = this.graph.createWall(startNode, endNode, {
+            const wall = graph.createWall(startNode, endNode, {
                 thickness: params.thickness || 10,
                 height: params.height || 280,
                 ...params.properties
@@ -53,7 +56,8 @@ export class WallService implements IWallService {
     }
 
     async updateWall(wallId: string, updates: Partial<IWall>): Promise<IWall> {
-        const wall = this.graph.getWall(wallId);
+        const graph = this.canvasStore.getWallGraph();
+        const wall = graph.getWall(wallId);
         if (!wall) {
             throw new Error(`Wall with id ${wallId} not found`);
         }
@@ -78,12 +82,13 @@ export class WallService implements IWallService {
 
     async deleteWall(wallId: string): Promise<void> {
         try {
-            const wall = this.graph.getWall(wallId);
+            const graph = this.canvasStore.getWallGraph();
+            const wall = graph.getWall(wallId);
             if (!wall) {
                 throw new Error(`Wall with id ${wallId} not found`);
             }
             
-            this.graph.removeWall(wallId);
+            graph.removeWall(wallId);
             await this.eventManager.emit('wall:deleted', { wallId });
             this.logger.info('Wall deleted', { wallId });
         } catch (error) {
@@ -93,24 +98,28 @@ export class WallService implements IWallService {
     }
 
     getWall(wallId: string): IWall | undefined {
-        const wall = this.graph.getWall(wallId);
+        const graph = this.canvasStore.getWallGraph();
+        const wall = graph.getWall(wallId);
         return wall ? this.toIWall(wall) : undefined;
     }
 
     getAllWalls(): IWall[] {
-        return this.graph.getAllWalls().map(wall => this.toIWall(wall));
+        const graph = this.canvasStore.getWallGraph();
+        return graph.getAllWalls().map(wall => this.toIWall(wall));
     }
 
     getSnapPoints(): Point[] {
-        return this.graph.getAllNodes().map(node => node.getPosition());
+        const graph = this.canvasStore.getWallGraph();
+        return graph.getAllNodes().map((node: WallNode) => node.getPosition());
     }
 
     getNearestSnapPoint(point: Point, threshold: number): Point | null {
-        const nodes = this.graph.getAllNodes();
+        const graph = this.canvasStore.getWallGraph();
+        const nodes = graph.getAllNodes();
         let nearestPoint: Point | null = null;
         let minDistance = threshold;
 
-        nodes.forEach(node => {
+        nodes.forEach((node: WallNode) => {
             const nodePos = node.getPosition();
             const distance = getDistance(point, nodePos);
             if (distance < minDistance) {

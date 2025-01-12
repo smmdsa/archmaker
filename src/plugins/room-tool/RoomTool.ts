@@ -5,37 +5,44 @@ import type { IConfigManager } from '../../core/interfaces/IConfig';
 import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
 import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
 import { UIComponentManifest } from '../../core/interfaces/IUIRegion';
-import { RoomService } from './services/RoomService';
-import { RoomStoreAdapter } from './services/RoomStoreAdapter';
 import { Point } from '../../core/types/geometry';
 import { ProjectStore } from '../../store/ProjectStore';
+import { RoomToolCore } from './core/RoomToolCore';
+import { Layer } from 'konva/lib/Layer';
+import { CanvasStore } from '../../store/CanvasStore';
 
 const toolManifest = {
     id: 'room-tool',
-    name: 'Room Tool',
+    name: 'Square Room',
     version: '1.0.0',
-    icon: '🏠',
-    tooltip: 'Draw rooms',
+    icon: '⬜',
+    tooltip: 'Draw square room',
     section: 'draw',
     order: 2,
     shortcut: 'r'
 };
 
+interface CanvasLayers {
+    mainLayer: Layer;
+    tempLayer: Layer;
+    gridLayer: Layer;
+}
+
 @ToolPlugin({
     id: 'room-tool',
-    name: 'Room Tool',
+    name: 'Square Room',
     version: '1.0.0',
-    description: 'Tool for drawing rooms',
-    icon: '🏠',
-    tooltip: 'Draw rooms',
+    description: 'Tool for drawing square/rectangular rooms',
+    icon: '⬜',
+    tooltip: 'Draw square room',
     section: 'draw',
     order: 2,
     shortcut: 'r'
 })
 export class RoomTool extends DrawingTool {
-    private readonly roomService: RoomService;
-    protected readonly store: ProjectStore;
-    private points: Point[] = [];
+    private readonly core: RoomToolCore;
+    private mainLayer: Layer | null = null;
+    private previewLayer: Layer | null = null;
 
     constructor(
         eventManager: IEventManager,
@@ -45,49 +52,69 @@ export class RoomTool extends DrawingTool {
     ) {
         super(eventManager, logger, configManager, store, 'room-tool', toolManifest);
         
-        this.store = store;
-        this.roomService = new RoomService(store, new RoomStoreAdapter(), configManager, eventManager, logger);
-    }
+        // Get singleton instance of CanvasStore
+        const canvasStore = CanvasStore.getInstance(eventManager, logger);
 
-    protected async onDrawingStart(point: Point): Promise<void> {
-        this.points = [point];
-        await this.roomService.create({
-            points: this.points,
-            height: this.properties.roomHeight,
-            properties: {
-                material: this.properties.material,
-                color: this.properties.color
-            }
+        this.core = new RoomToolCore(
+            {
+                defaultRoomProperties: {
+                    wallThickness: 10,
+                    wallHeight: 280
+                },
+                snapThreshold: 20
+            },
+            eventManager,
+            logger,
+            canvasStore
+        );
+
+        // Subscribe to canvas layers
+        this.eventManager.on<CanvasLayers>('canvas:layers', (layers) => {
+            this.logger.info('Received canvas layers in RoomTool');
+            this.setLayers(layers.mainLayer, layers.tempLayer);
+            canvasStore.setLayers(layers);
         });
-    }
 
-    protected async onDrawingUpdate(point: Point): Promise<void> {
-        const rooms = this.roomService.getAll();
-        if (rooms.length > 0) {
-            const lastRoom = rooms[rooms.length - 1];
-            this.points.push(point);
-            await this.roomService.update(lastRoom.id, {
-                points: [...this.points]
-            });
-        }
-    }
+        // Request layers if canvas is already initialized
+        this.eventManager.emit('canvas:request-layers', null);
 
-    protected async onDrawingFinish(point: Point): Promise<void> {
-        const rooms = this.roomService.getAll();
-        if (rooms.length > 0) {
-            const lastRoom = rooms[rooms.length - 1];
-            this.points.push(point);
-            await this.roomService.update(lastRoom.id, {
-                points: [...this.points]
-            });
-            this.points = [];
-        }
+        // Subscribe to wall events for logging
+        this.eventManager.on<{ wall: any }>('wall:created', (event) => {
+            this.logger.info('Wall created in room tool context', { wall: event.wall });
+        });
+
+        this.logger.info('RoomTool initialized');
     }
 
     protected clearPreview(): void {
-        if (this.currentLayer) {
-            this.currentLayer.batchDraw();
+        if (this.previewLayer) {
+            this.previewLayer.destroyChildren();
+            this.previewLayer.batchDraw();
         }
+    }
+
+    private setLayers(mainLayer: Layer, tempLayer: Layer): void {
+        this.logger.info('Setting layers in RoomTool', {
+            mainLayerId: mainLayer.id(),
+            tempLayerId: tempLayer.id()
+        });
+        this.mainLayer = mainLayer;
+        this.previewLayer = tempLayer;
+        this.core.setLayers(mainLayer, tempLayer);
+    }
+
+    protected async onDrawingStart(point: Point): Promise<void> {
+        this.logger.info('Starting room drawing', { point });
+        this.core.startDrawing(point);
+    }
+
+    protected async onDrawingUpdate(point: Point): Promise<void> {
+        this.core.updateDrawing(point);
+    }
+
+    protected async onDrawingFinish(point: Point): Promise<void> {
+        this.logger.info('Finishing room drawing', { point });
+        await this.core.finishDrawing();
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {

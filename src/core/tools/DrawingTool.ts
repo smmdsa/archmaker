@@ -28,6 +28,7 @@ export abstract class DrawingTool extends StoreBasedTool {
     protected keydownHandler: (e: KeyboardEvent) => void;
     protected properties: IDrawingProperties;
     protected config: IDrawingToolConfig;
+    protected readonly id: string;
 
     constructor(
         eventManager: IEventManager,
@@ -38,6 +39,7 @@ export abstract class DrawingTool extends StoreBasedTool {
         manifest: any
     ) {
         super(eventManager, logger, configManager, store, id, manifest);
+        this.id = id;
 
         // Load config from configManager
         this.config = configManager.getPluginConfig(id)?.drawing || {

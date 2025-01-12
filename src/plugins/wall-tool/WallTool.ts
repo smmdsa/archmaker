@@ -14,6 +14,7 @@ import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
 import { CreateWallCommand } from './commands/WallCommands';
 import { Vector2 } from 'three';
 import { Stage } from 'konva/lib/Stage';
+import { CanvasStore } from '../../store/CanvasStore';
 
 interface CanvasLayers {
     mainLayer: Layer;
@@ -59,6 +60,9 @@ export class WallTool extends DrawingTool {
     ) {
         super(eventManager, logger, configManager, store, id, manifest);
 
+        // Get singleton instance of CanvasStore
+        const canvasStore = CanvasStore.getInstance(eventManager, logger);
+
         this.core = new WallToolCore({
             defaultWallProperties: {
                 thickness: 10,
@@ -66,7 +70,7 @@ export class WallTool extends DrawingTool {
             },
             snapThreshold: 20,
             nodeRadius: 5
-        });
+        }, canvasStore);
 
         this.commandManager = new CommandManager();
 
@@ -74,13 +78,11 @@ export class WallTool extends DrawingTool {
         this.eventManager.on<CanvasLayers>('canvas:layers', (layers) => {
             this.logger.info('Received canvas layers in WallTool');
             this.setLayers(layers.mainLayer, layers.tempLayer);
+            canvasStore.setLayers(layers);
         });
 
         // Request layers if canvas is already initialized
         this.eventManager.emit('canvas:request-layers', null);
-
-        // Register keyboard shortcuts
-        this.registerKeyboardShortcuts();
 
         // Log initialization
         this.logger.info('WallTool initialized');
