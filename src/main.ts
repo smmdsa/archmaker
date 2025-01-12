@@ -19,6 +19,7 @@ import { WallTool } from './plugins/wall-tool/WallTool';
 import { RoomTool } from './plugins/room-tool/RoomTool';
 import { SelectTool } from './plugins/select-tool/SelectTool';
 import { MoveTool } from './plugins/move-tool/MoveTool';
+import { RemoveTool } from './plugins/remove-tool/RemoveTool';
 
 // Servicios y UI
 import { StoragePlugin } from './plugins/storage';
@@ -29,6 +30,7 @@ console.info('Plugins loaded:', {
     RoomTool,
     SelectTool,
     MoveTool,
+    RemoveTool,
     StoragePlugin
 });
 

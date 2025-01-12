@@ -14,7 +14,8 @@ import { SelectionStore } from '../../store/SelectionStore';
 enum WallToolMode {
     IDLE = 'idle',
     DRAWING = 'drawing',
-    MOVING_NODE = 'moving_node'
+    MOVING_NODE = 'moving_node',
+    SPLITTING_WALL = 'splitting_wall'
 }
 
 interface WallToolState {
@@ -22,6 +23,7 @@ interface WallToolState {
     isDrawing: boolean;
     startNode: NodeObject | null;
     activeNode: NodeObject | null;
+    activeWall: WallObject | null;
     previewLine: Line | null;
     snapThreshold: number;
     isDragging: boolean;
@@ -57,6 +59,7 @@ export class WallTool extends BaseTool {
         isDrawing: false,
         startNode: null,
         activeNode: null,
+        activeWall: null,
         previewLine: null,
         snapThreshold: 10,
         isDragging: false
@@ -107,12 +110,21 @@ export class WallTool extends BaseTool {
                 this.state.isDrawing = true;
                 this.initPreviewLine(hitNode.position);
             }
-        } else if (this.state.mode === WallToolMode.IDLE) {
-            // Create new node and start drawing
-            this.state.startNode = graph.createNode(event.position);
-            this.state.mode = WallToolMode.DRAWING;
-            this.state.isDrawing = true;
-            this.initPreviewLine(this.state.startNode.position);
+        } else {
+            // Check if we hit a wall
+            const hitWall = this.findWallAtPosition(event.position);
+            if (hitWall && this.state.mode === WallToolMode.IDLE) {
+                // Split wall mode
+                this.state.activeWall = hitWall;
+                this.state.mode = WallToolMode.SPLITTING_WALL;
+                await this.handleWallSplit(event.position);
+            } else if (this.state.mode === WallToolMode.IDLE) {
+                // Create new node and start drawing
+                this.state.startNode = graph.createNode(event.position);
+                this.state.mode = WallToolMode.DRAWING;
+                this.state.isDrawing = true;
+                this.initPreviewLine(this.state.startNode.position);
+            }
         }
     }
 
@@ -344,6 +356,57 @@ export class WallTool extends BaseTool {
         }
     }
 
+    private findWallAtPosition(position: Point): WallObject | null {
+        const graph = this.canvasStore.getWallGraph();
+        const walls = graph.getAllWalls();
+
+        for (const wall of walls) {
+            if (wall.containsPoint(position)) {
+                return wall;
+            }
+        }
+
+        return null;
+    }
+
+    private async handleWallSplit(position: Point): Promise<void> {
+        if (!this.state.activeWall) return;
+
+        const graph = this.canvasStore.getWallGraph();
+        
+        // Create new node at split point
+        const newNode = graph.createNode(position);
+
+        // Get the original wall's data
+        const wallData = this.state.activeWall.getData();
+        
+        // Create two new walls
+        const wall1 = graph.createWall(wallData.startNodeId, newNode.id);
+        const wall2 = graph.createWall(newNode.id, wallData.endNodeId);
+
+        if (wall1 && wall2) {
+            // Remove the original wall
+            graph.removeWall(this.state.activeWall.id);
+
+            this.logger.info('Wall split', {
+                originalWallId: this.state.activeWall.id,
+                newNodeId: newNode.id,
+                wall1Id: wall1.id,
+                wall2Id: wall2.id
+            });
+        }
+
+        // Reset state
+        this.state.activeWall = null;
+        this.state.mode = WallToolMode.IDLE;
+
+        // Trigger redraw
+        const layers = this.canvasStore.getLayers();
+        if (layers) {
+            layers.mainLayer.batchDraw();
+        }
+    }
+
     async activate(): Promise<void> {
         await super.activate();
         this.selectionStore.clearSelection();
@@ -356,6 +419,7 @@ export class WallTool extends BaseTool {
             isDrawing: false,
             startNode: null,
             activeNode: null,
+            activeWall: null,
             previewLine: null,
             snapThreshold: 10,
             isDragging: false
