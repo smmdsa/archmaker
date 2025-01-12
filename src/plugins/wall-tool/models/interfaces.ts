@@ -19,4 +19,6 @@ export interface IWall {
     getId(): string;
     getProperties(): IWallProperties;
     updateNodePosition(node: IWallNode): void;
+    getStartNode(): IWallNode;
+    getEndNode(): IWallNode;
 } 

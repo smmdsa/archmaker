@@ -85,11 +85,16 @@ export class WallGraph {
         });
     }
 
-    findClosestNode(point: Vector2, threshold: number = 10): WallNode | null {
+    findClosestNode(point: Vector2, threshold: number = 10, excludeNode?: WallNode): WallNode | null {
         let closest: WallNode | null = null;
         let minDistance = threshold;
 
         this.nodes.forEach(node => {
+            // Skip the node being moved
+            if (excludeNode && node.getId() === excludeNode.getId()) {
+                return;
+            }
+            
             const distance = node.getPosition().distanceTo(point);
             if (distance < minDistance) {
                 minDistance = distance;

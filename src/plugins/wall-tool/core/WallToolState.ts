@@ -168,6 +168,31 @@ export class WallToolState {
     }
 
     private finishNodeMove(): void {
+        if (this.activeNode) {
+            const position = this.activeNode.getPosition();
+            // Check for nearby nodes to merge, excluding the active node
+
+            const nearestNode = this.context.graph.findClosestNode(position, 10, this.activeNode);
+            
+            if (nearestNode) {
+                console.log('Found node to merge after move:', {
+                    activeNode: this.activeNode.getId(),
+                    nearestNode: nearestNode.getId(),
+                    distance: position.distanceTo(nearestNode.getPosition())
+                });
+                // Transfer connections and merge nodes
+                const connectedWalls = this.activeNode.getConnectedWalls();
+                connectedWalls.forEach(wall => {
+                    if (wall.getStartNode() === this.activeNode) {
+                        this.context.graph.createWall(nearestNode, wall.getEndNode() as WallNode, wall.getProperties());
+                    } else {
+                        this.context.graph.createWall(wall.getStartNode() as WallNode, nearestNode, wall.getProperties());
+                    }
+                    this.context.graph.removeWall(wall.getId());
+                });
+                this.context.graph.removeNode(this.activeNode.getId());
+            }
+        }
         this.activeNode = null;
         this.mode = WallToolMode.IDLE;
     }
