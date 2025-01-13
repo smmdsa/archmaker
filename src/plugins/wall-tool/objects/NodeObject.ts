@@ -7,12 +7,14 @@ import { Circle } from 'konva/lib/shapes/Circle';
 interface NodeData {
     connectedWallIds: string[];
     radius: number;
+    isMovable: boolean;
 }
 
 export class NodeObject extends BaseObject {
     private readonly connectedWallIds: Set<string> = new Set();
     private readonly radius: number;
     private nodeCircle: Circle | null = null;
+    private readonly isMovable: boolean;
 
     // Visual styles
     private readonly styles = {
@@ -25,13 +27,19 @@ export class NodeObject extends BaseObject {
             fill: '#e3f2fd',
             stroke: '#2196f3',
             strokeWidth: 2
+        },
+        immovable: {
+            fill: '#f5f5f5',
+            stroke: '#9e9e9e',
+            strokeWidth: 2
         }
     };
 
     constructor(
         id: string,
         position: Point,
-        radius: number = 5
+        radius: number = 5,
+        isMovable: boolean = true
     ) {
         // Calculate bounds based on radius
         const bounds = {
@@ -49,6 +57,7 @@ export class NodeObject extends BaseObject {
         );
 
         this.radius = radius;
+        this.isMovable = isMovable;
     }
 
     render(layer: Layer): void {
@@ -58,7 +67,12 @@ export class NodeObject extends BaseObject {
             this.nodeCircle = null;
         }
 
-        const style = this._isSelected ? this.styles.selected : this.styles.normal;
+        let style;
+        if (!this.isMovable) {
+            style = this.styles.immovable;
+        } else {
+            style = this._isSelected ? this.styles.selected : this.styles.normal;
+        }
 
         // Create or update node circle
         if (!this.nodeCircle) {
@@ -87,7 +101,8 @@ export class NodeObject extends BaseObject {
     getData(): NodeData {
         return {
             connectedWallIds: Array.from(this.connectedWallIds),
-            radius: this.radius
+            radius: this.radius,
+            isMovable: this.isMovable
         };
     }
 
@@ -105,6 +120,10 @@ export class NodeObject extends BaseObject {
     }
 
     setPosition(x: number, y: number): void {
+        if (!this.isMovable) {
+            return; // Early return if node is not movable
+        }
+
         this._position = { x, y };
         // Update bounds
         this._bounds = {

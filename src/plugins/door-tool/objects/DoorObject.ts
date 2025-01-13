@@ -39,6 +39,7 @@ export class DoorObject extends BaseObject implements ISelectableObject {
     // Konva elements for rendering
     private group?: Group;
     private doorLine?: Line;
+    private swingPathLine?: Line;
     private startNode?: Circle;
     private endNode?: Circle;
     private doorLabel?: Text;
@@ -165,6 +166,11 @@ export class DoorObject extends BaseObject implements ISelectableObject {
             }
         }
 
+        // Update swing path
+        if (this.swingPathLine) {
+            this.swingPathLine.points(this.calculateSwingPathPoints(width, direction));
+        }
+
         // Update node positions
         if (this.startNode) {
             this.startNode.position({ x: -width/2, y: 0 });
@@ -202,6 +208,35 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         return points;
     }
 
+    private calculateSwingPathPoints(width: number, direction: 'left' | 'right'): number[] {
+        const points: number[] = [];
+        const segments = 16;
+        const radius = width; // Full door width is the radius
+        
+        // For left-opening doors: start at 0° and end at 90° (counterclockwise from left pivot)
+        // For right-opening doors: start at 0° and end at -90° (clockwise from left pivot)
+        const startAngle = 0;
+        const endAngle = direction === 'left' ? Math.PI/2 : -Math.PI/2;
+
+        // Create radial lines for the swing path
+        for (let i = 0; i <= segments; i++) {
+            const t = i / segments;
+            const angle = startAngle + (endAngle - startAngle) * t;
+            
+            // Always pivot from the left node (-width/2, 0)
+            const pivotX = -width/2;
+            
+            points.push(
+                pivotX,  // Pivot X
+                0,      // Pivot Y
+                pivotX + radius * Math.cos(angle),  // End X
+                radius * Math.sin(angle)            // End Y
+            );
+        }
+
+        return points;
+    }
+
     // Required interface implementations
     render(layer: Layer): void {
         // Destroy previous elements if they exist
@@ -219,6 +254,16 @@ export class DoorObject extends BaseObject implements ISelectableObject {
                      this._isHighlighted ? this.styles.highlighted :
                      this.styles.normal;
 
+        // Create swing path line with updated style
+        this.swingPathLine = new Line({
+            points: this.calculateSwingPathPoints(this.data.properties.width, this.data.properties.openDirection),
+            stroke: '#999999',
+            strokeWidth: 1,
+            dash: [3, 3],
+            opacity: 0.5,
+            tension: 0.2
+        });
+
         // Create door line with current style
         this.doorLine = new Line({
             points: [-this.data.properties.width/2, 0, this.data.properties.width/2, 0],
@@ -233,7 +278,8 @@ export class DoorObject extends BaseObject implements ISelectableObject {
             radius: 5,
             fill: style.fill,
             stroke: style.stroke,
-            strokeWidth: 1
+            strokeWidth: 1,
+            draggable: false
         });
 
         this.endNode = new Circle({
@@ -242,7 +288,8 @@ export class DoorObject extends BaseObject implements ISelectableObject {
             radius: 5,
             fill: style.fill,
             stroke: style.stroke,
-            strokeWidth: 1
+            strokeWidth: 1,
+            draggable: false
         });
 
         // Create label background
@@ -268,6 +315,7 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         });
 
         // Add all elements to group in correct order
+        this.group.add(this.swingPathLine);
         this.group.add(this.labelBackground);
         this.group.add(this.doorLine);
         this.group.add(this.startNode);
