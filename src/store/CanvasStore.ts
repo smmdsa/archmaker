@@ -7,6 +7,8 @@ import { ISelectableObject } from '../core/interfaces/ISelectableObject';
 import { WallObject } from '../plugins/wall-tool/objects/WallObject';
 import { NodeObject } from '../plugins/wall-tool/objects/NodeObject';
 import { RoomObject } from '../plugins/room-tool/objects/RoomObject';
+import { DoorObject } from '../plugins/door-tool/objects/DoorObject';
+import { DoorStore } from '../plugins/door-tool/stores/DoorStore';
 
 // Event interfaces
 interface ObjectCreatedEvent {
@@ -26,6 +28,7 @@ interface GraphChangedEvent {
     nodeCount: number;
     wallCount: number;
     roomCount: number;
+    doorCount: number;
 }
 
 export interface CanvasLayers {
@@ -37,9 +40,7 @@ export interface CanvasLayers {
 // Graph registry interface
 interface GraphRegistry {
     walls: WallGraph;
-    // Future graphs will be added here:
-    // doors: DoorGraph;
-    // windows: WindowGraph;
+    doors: DoorStore;
 }
 
 export class CanvasStore {
@@ -55,9 +56,7 @@ export class CanvasStore {
         // Initialize all graphs
         this.graphs = {
             walls: new WallGraph(this.eventManager),
-            // Future initialization:
-            // doors: new DoorGraph(),
-            // windows: new WindowGraph()
+            doors: DoorStore.getInstance(this.eventManager, this.logger)
         };
         
         this.setupSubscriptions();
@@ -78,14 +77,9 @@ export class CanvasStore {
         return this.graphs.walls;
     }
 
-    // Future graph access methods:
-    // getDoorGraph(): DoorGraph {
-    //     return this.graphs.doors;
-    // }
-    // 
-    // getWindowGraph(): WindowGraph {
-    //     return this.graphs.windows;
-    // }
+    getDoorStore(): DoorStore {
+        return this.graphs.doors;
+    }
 
     private setupSubscriptions(): void {
         // Object events
@@ -106,6 +100,12 @@ export class CanvasStore {
             this.redraw$.next();
         });
 
+        // Door change events
+        this.eventManager.on('door:changed', () => {
+            this.logger.info('Door state changed, triggering redraw');
+            this.redraw$.next();
+        });
+
         // Subscribe to redraw events with debounce to prevent too frequent redraws
         this.redraw$.pipe(
             debounceTime(16) // ~60fps
@@ -118,6 +118,8 @@ export class CanvasStore {
         const layers = this.layers$.getValue();
         if (!layers) return;
 
+        this.logger.info('Starting canvas redraw');
+
         // Clear main layer
         layers.mainLayer.destroyChildren();
 
@@ -126,23 +128,49 @@ export class CanvasStore {
 
         // Batch draw for performance
         layers.mainLayer.batchDraw();
+        
+        this.logger.info('Canvas redraw completed');
     }
 
     private renderObjects(layer: Layer): void {
-        const graph = this.graphs.walls;
+        const wallGraph = this.graphs.walls;
+        const doorStore = this.graphs.doors;
+
+        this.logger.info('Rendering objects:', {
+            walls: wallGraph.getAllWalls().length,
+            doors: doorStore.getAllDoors().length,
+            rooms: wallGraph.getAllRooms().length,
+            nodes: wallGraph.getAllNodes().length
+        });
 
         // Render walls first (bottom layer)
-        graph.getAllWalls().forEach(wall => {
+        wallGraph.getAllWalls().forEach(wall => {
             wall.render(layer);
         });
 
-        // Render rooms next (middle layer)
-        graph.getAllRooms().forEach(room => {
+        // Render doors next (middle layer)
+        const doors = doorStore.getAllDoors();
+        this.logger.info('Rendering doors:', {
+            count: doors.length,
+            doorIds: doors.map(d => d.id)
+        });
+        
+        doors.forEach(door => {
+            this.logger.info('Rendering door:', {
+                id: door.id,
+                wallId: door.getData().wallId,
+                position: door.getData().position
+            });
+            door.render(layer);
+        });
+
+        // Render rooms next (upper middle layer)
+        wallGraph.getAllRooms().forEach(room => {
             room.render(layer);
         });
 
         // Render nodes last (top layer)
-        graph.getAllNodes().forEach(node => {
+        wallGraph.getAllNodes().forEach(node => {
             node.render(layer);
         });
     }

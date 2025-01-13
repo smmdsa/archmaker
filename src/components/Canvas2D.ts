@@ -31,9 +31,9 @@ export class Canvas2D {
         });
 
         // Create layers
-        this.gridLayer = new Konva.Layer();
-        this.mainLayer = new Konva.Layer();
-        this.tempLayer = new Konva.Layer();
+        this.gridLayer = new Konva.Layer({ id: 'grid-layer' });
+        this.mainLayer = new Konva.Layer({ id: 'main-layer' });
+        this.tempLayer = new Konva.Layer({ id: 'temp-layer' });
 
         // Add layers to stage
         this.stage.add(this.gridLayer);

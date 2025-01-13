@@ -3,7 +3,8 @@ import { Point } from '../types/geometry';
 export enum SelectableObjectType {
     NODE = 'node',
     WALL = 'wall',
-    ROOM = 'room'
+    ROOM = 'room',
+    DOOR = 'door'
 }
 
 export interface ISelectableObject {

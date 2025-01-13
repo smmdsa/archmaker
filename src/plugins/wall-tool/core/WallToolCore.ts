@@ -294,7 +294,8 @@ export class WallToolCore {
                     fill: '#666666',
                     padding: 4,
                     offsetX: 0,
-                    offsetY: -10
+                    offsetY: -10,
+                    rotation: Math.atan2(dy, dx) * 180 / Math.PI
                 });
                 this.previewLayer!.add(dimensionLabel);
             }

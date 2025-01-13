@@ -3,6 +3,8 @@ import { SelectableObjectType } from '../../../core/interfaces/ISelectableObject
 import { Point } from '../../../core/types/geometry';
 import { Layer } from 'konva/lib/Layer';
 import { Line } from 'konva/lib/shapes/Line';
+import { Text } from 'konva/lib/shapes/Text';
+import { Group } from 'konva/lib/Group';
 
 interface WallData {
     startNodeId: string;
@@ -18,7 +20,9 @@ export class WallObject extends BaseObject {
     private readonly endNodeId: string;
     private startPoint: Point;
     private endPoint: Point;
+    private wallGroup: Group | null = null;
     private wallLine: Line | null = null;
+    private lengthLabel: Text | null = null;
     private thickness: number = 10;
     private height: number = 280;
 
@@ -76,10 +80,12 @@ export class WallObject extends BaseObject {
     }
 
     render(layer: Layer): void {
-        // Cleanup old line if it exists and is not in the current layer
-        if (this.wallLine && this.wallLine.getLayer() !== layer) {
-            this.wallLine.destroy();
+        // Cleanup old elements if they exist and are not in the current layer
+        if (this.wallGroup && this.wallGroup.getLayer() !== layer) {
+            this.wallGroup.destroy();
+            this.wallGroup = null;
             this.wallLine = null;
+            this.lengthLabel = null;
         }
 
         let style = this.styles.normal;
@@ -89,8 +95,13 @@ export class WallObject extends BaseObject {
             style = this.styles.highlighted;
         }
 
-        // Create or update wall line
-        if (!this.wallLine) {
+        // Create or update wall group
+        if (!this.wallGroup) {
+            this.wallGroup = new Group({
+                name: `wall-${this.id}`
+            });
+
+            // Create wall line
             this.wallLine = new Line({
                 points: [
                     this.startPoint.x,
@@ -100,19 +111,56 @@ export class WallObject extends BaseObject {
                 ],
                 stroke: style.stroke,
                 strokeWidth: style.strokeWidth,
-                name: `wall-${this.id}`
+                name: `wall-line-${this.id}`
             });
-            layer.add(this.wallLine);
+
+            // Calculate wall length in centimeters (1px = 1cm)
+            const dx = this.endPoint.x - this.startPoint.x;
+            const dy = this.endPoint.y - this.startPoint.y;
+            const length = Math.round(Math.sqrt(dx * dx + dy * dy));
+
+            // Create length label
+            this.lengthLabel = new Text({
+                x: (this.startPoint.x + this.endPoint.x) / 2,
+                y: (this.startPoint.y + this.endPoint.y) / 2,
+                text: `${length} cm`,
+                fontSize: 12,
+                fill: '#666666',
+                padding: 4,
+                offsetX: 0,
+                offsetY: -10,
+                rotation: Math.atan2(dy, dx) * 180 / Math.PI,
+                name: `wall-label-${this.id}`
+            });
+
+            this.wallGroup.add(this.wallLine);
+            this.wallGroup.add(this.lengthLabel);
+            layer.add(this.wallGroup);
         } else {
-            // Update existing line
-            this.wallLine.points([
-                this.startPoint.x,
-                this.startPoint.y,
-                this.endPoint.x,
-                this.endPoint.y
-            ]);
-            this.wallLine.stroke(style.stroke);
-            this.wallLine.strokeWidth(style.strokeWidth);
+            // Update existing elements
+            if (this.wallLine) {
+                this.wallLine.points([
+                    this.startPoint.x,
+                    this.startPoint.y,
+                    this.endPoint.x,
+                    this.endPoint.y
+                ]);
+                this.wallLine.stroke(style.stroke);
+                this.wallLine.strokeWidth(style.strokeWidth);
+            }
+
+            if (this.lengthLabel) {
+                const dx = this.endPoint.x - this.startPoint.x;
+                const dy = this.endPoint.y - this.startPoint.y;
+                const length = Math.round(Math.sqrt(dx * dx + dy * dy));
+                
+                this.lengthLabel.position({
+                    x: (this.startPoint.x + this.endPoint.x) / 2,
+                    y: (this.startPoint.y + this.endPoint.y) / 2
+                });
+                this.lengthLabel.text(`${length} cm`);
+                this.lengthLabel.rotation(Math.atan2(dy, dx) * 180 / Math.PI);
+            }
         }
     }
 
@@ -214,7 +262,7 @@ export class WallObject extends BaseObject {
                              this.styles.normal;
                 this.wallLine.stroke(style.stroke);
                 this.wallLine.strokeWidth(style.strokeWidth);
-                this.wallLine.getLayer()?.draw();
+                this.wallGroup?.getLayer()?.batchDraw();
             }
         }
     }
@@ -229,7 +277,7 @@ export class WallObject extends BaseObject {
                              this.styles.normal;
                 this.wallLine.stroke(style.stroke);
                 this.wallLine.strokeWidth(style.strokeWidth);
-                this.wallLine.getLayer()?.draw();
+                this.wallGroup?.getLayer()?.batchDraw();
             }
         }
     }
