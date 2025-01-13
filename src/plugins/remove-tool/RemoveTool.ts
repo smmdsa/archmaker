@@ -34,6 +34,8 @@ const toolManifest = {
 export class RemoveTool extends BaseTool {
     private readonly selectionStore: SelectionStore;
     private readonly canvasStore: CanvasStore;
+    private previousToolId: string | null = null;
+    private keydownHandler: (e: KeyboardEvent) => void;
 
     constructor(
         eventManager: IEventManager,
@@ -43,13 +45,46 @@ export class RemoveTool extends BaseTool {
         super(eventManager, logger, 'remove-tool', toolManifest);
         this.selectionStore = SelectionStore.getInstance(eventManager, logger);
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
+
+        // Create bound handler for keyboard events
+        this.keydownHandler = this.handleKeyDown.bind(this);
+    }
+
+    async initialize(): Promise<void> {
+        await super.initialize();
+        // Add global keyboard event listener
+        window.addEventListener('keydown', this.keydownHandler);
+    }
+
+    async dispose(): Promise<void> {
+        // Remove keyboard event listener
+        window.removeEventListener('keydown', this.keydownHandler);
+        await super.dispose();
+    }
+
+    private async handleKeyDown(e: KeyboardEvent): Promise<void> {
+        if (e.key === 'Delete') {
+            // Get active tool through event manager
+            const activeToolEvent = await new Promise<any>(resolve => {
+                this.eventManager.emit('tool:get_active', resolve);
+            });
+
+            if (activeToolEvent?.toolId && activeToolEvent.toolId !== 'remove-tool') {
+                this.previousToolId = activeToolEvent.toolId;
+            }
+
+            await this.removeSelectedObjects();
+
+            // Restore previous tool if it exists
+            if (this.previousToolId) {
+                await this.eventManager.emit('tool:activate', { toolId: this.previousToolId });
+                this.previousToolId = null;
+            }
+        }
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {
-        // Only handle keyboard events for Delete key
-        if (event.type === 'keydown' && (event.originalEvent as KeyboardEvent).key === 'Delete') {
-            await this.removeSelectedObjects();
-        }
+        // Handle other canvas events if needed in the future
     }
 
     async activate(): Promise<void> {

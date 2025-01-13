@@ -203,4 +203,34 @@ export class WallObject extends BaseObject {
     getEndNodeId(): string {
         return this.endNodeId;
     }
+
+    // Override setSelected to force re-render
+    setSelected(selected: boolean): void {
+        if (this._isSelected !== selected) {
+            super.setSelected(selected);
+            if (this.wallLine) {
+                const style = selected ? this.styles.selected : 
+                             this._isHighlighted ? this.styles.highlighted : 
+                             this.styles.normal;
+                this.wallLine.stroke(style.stroke);
+                this.wallLine.strokeWidth(style.strokeWidth);
+                this.wallLine.getLayer()?.draw();
+            }
+        }
+    }
+
+    // Override setHighlighted to force re-render
+    setHighlighted(highlighted: boolean): void {
+        if (this._isHighlighted !== highlighted) {
+            super.setHighlighted(highlighted);
+            if (this.wallLine) {
+                const style = this._isSelected ? this.styles.selected :
+                             highlighted ? this.styles.highlighted :
+                             this.styles.normal;
+                this.wallLine.stroke(style.stroke);
+                this.wallLine.strokeWidth(style.strokeWidth);
+                this.wallLine.getLayer()?.draw();
+            }
+        }
+    }
 } 

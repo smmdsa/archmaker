@@ -8,11 +8,14 @@ import { WallGraph } from '../../../plugins/wall-tool/models/WallGraph';
 import { NodeObject } from '../../../plugins/wall-tool/objects/NodeObject';
 import { WallObject } from '../../../plugins/wall-tool/objects/WallObject';
 import { Point } from '../../../core/types/geometry';
+import { ToolService } from '../../../core/tools/services/ToolService';
+import { BaseTool } from '../../../core/tools/BaseTool';
 
 // Mock dependencies
 jest.mock('../../../store/SelectionStore');
 jest.mock('../../../store/CanvasStore');
 jest.mock('../../../plugins/wall-tool/models/WallGraph');
+jest.mock('../../../core/tools/services/ToolService');
 
 describe('RemoveTool', () => {
     let removeTool: RemoveTool;
@@ -22,6 +25,7 @@ describe('RemoveTool', () => {
     let selectionStore: jest.Mocked<SelectionStore>;
     let canvasStore: jest.Mocked<CanvasStore>;
     let wallGraph: jest.Mocked<WallGraph>;
+    let toolService: jest.Mocked<ToolService>;
 
     beforeEach(() => {
         // Create mock implementations
@@ -66,8 +70,14 @@ describe('RemoveTool', () => {
             getWallGraph: jest.fn().mockReturnValue(wallGraph),
         } as unknown as jest.Mocked<CanvasStore>;
 
+        // Setup ToolService mock
+        toolService = {
+            getActiveTool: jest.fn(),
+            activateTool: jest.fn(),
+        } as unknown as jest.Mocked<ToolService>;
+
         // Initialize tool
-        removeTool = new RemoveTool(eventManager, logger, configManager);
+        removeTool = new RemoveTool(eventManager, logger, configManager, toolService);
     });
 
     describe('removeSelectedObjects', () => {
@@ -140,13 +150,18 @@ describe('RemoveTool', () => {
             expect(selectionStore.clearSelection).toHaveBeenCalled();
         });
 
-        it('should handle Delete key press', async () => {
+        it('should handle Delete key press and restore previous tool', async () => {
             // Setup
             const event = {
                 type: 'keydown',
                 originalEvent: new KeyboardEvent('keydown', { key: 'Delete' }),
             };
 
+            const previousTool = {
+                manifest: { id: 'previous-tool' }
+            } as BaseTool;
+
+            toolService.getActiveTool.mockReturnValue(previousTool);
             selectionStore.getSelectedNodes.mockReturnValue(new Set(['node1']));
             selectionStore.getSelectedWalls.mockReturnValue(new Set());
             wallGraph.getNode.mockReturnValue(new NodeObject(eventManager, logger, { id: 'node1', position: { x: 0, y: 0 } }));
@@ -158,6 +173,33 @@ describe('RemoveTool', () => {
             expect(wallGraph.removeNode).toHaveBeenCalledWith('node1');
             expect(eventManager.emit).toHaveBeenCalledWith('graph:changed', expect.any(Object));
             expect(selectionStore.clearSelection).toHaveBeenCalled();
+            expect(toolService.activateTool).toHaveBeenCalledWith('previous-tool');
+        });
+
+        it('should not restore tool if current tool is remove-tool', async () => {
+            // Setup
+            const event = {
+                type: 'keydown',
+                originalEvent: new KeyboardEvent('keydown', { key: 'Delete' }),
+            };
+
+            const currentTool = {
+                manifest: { id: 'remove-tool' }
+            } as BaseTool;
+
+            toolService.getActiveTool.mockReturnValue(currentTool);
+            selectionStore.getSelectedNodes.mockReturnValue(new Set(['node1']));
+            selectionStore.getSelectedWalls.mockReturnValue(new Set());
+            wallGraph.getNode.mockReturnValue(new NodeObject(eventManager, logger, { id: 'node1', position: { x: 0, y: 0 } }));
+
+            // Execute
+            await removeTool.onCanvasEvent(event as any);
+
+            // Verify
+            expect(wallGraph.removeNode).toHaveBeenCalledWith('node1');
+            expect(eventManager.emit).toHaveBeenCalledWith('graph:changed', expect.any(Object));
+            expect(selectionStore.clearSelection).toHaveBeenCalled();
+            expect(toolService.activateTool).not.toHaveBeenCalled();
         });
     });
 }); 

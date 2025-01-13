@@ -125,4 +125,32 @@ export class NodeObject extends BaseObject {
         const dy = point.y - this.position.y;
         return (dx * dx + dy * dy) <= (this.radius * this.radius);
     }
+
+    // Override setSelected to force re-render
+    setSelected(selected: boolean): void {
+        if (this._isSelected !== selected) {
+            super.setSelected(selected);
+            if (this.nodeCircle) {
+                const style = selected ? this.styles.selected : this.styles.normal;
+                this.nodeCircle.fill(style.fill);
+                this.nodeCircle.stroke(style.stroke);
+                this.nodeCircle.strokeWidth(style.strokeWidth);
+                this.nodeCircle.getLayer()?.draw();
+            }
+        }
+    }
+
+    // Override setHighlighted to force re-render
+    setHighlighted(highlighted: boolean): void {
+        if (this._isHighlighted !== highlighted) {
+            super.setHighlighted(highlighted);
+            if (this.nodeCircle) {
+                const style = this._isSelected ? this.styles.selected : this.styles.normal;
+                this.nodeCircle.fill(style.fill);
+                this.nodeCircle.stroke(style.stroke);
+                this.nodeCircle.strokeWidth(style.strokeWidth);
+                this.nodeCircle.getLayer()?.draw();
+            }
+        }
+    }
 } 
