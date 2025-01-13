@@ -21,6 +21,7 @@ import { SelectTool } from './plugins/select-tool/SelectTool';
 import { MoveTool } from './plugins/move-tool/MoveTool';
 import { RemoveTool } from './plugins/remove-tool/RemoveTool';
 import { DoorTool } from './plugins/door-tool/DoorTool';
+import { WindowTool } from './plugins/window-tool/WindowTool';
 
 // Servicios y UI
 import { StoragePlugin } from './plugins/storage';
@@ -33,6 +34,7 @@ console.info('Plugins loaded:', {
     MoveTool,
     RemoveTool,
     DoorTool,
+    WindowTool,
     StoragePlugin
 });
 

@@ -9,6 +9,8 @@ import { NodeObject } from '../plugins/wall-tool/objects/NodeObject';
 import { RoomObject } from '../plugins/room-tool/objects/RoomObject';
 import { DoorObject } from '../plugins/door-tool/objects/DoorObject';
 import { DoorStore } from '../plugins/door-tool/stores/DoorStore';
+import { WindowStore } from '../plugins/window-tool/stores/WindowStore';
+import { WindowObject } from '../plugins/window-tool/objects/WindowObject';
 
 // Event interfaces
 interface ObjectCreatedEvent {
@@ -29,6 +31,7 @@ interface GraphChangedEvent {
     wallCount: number;
     roomCount: number;
     doorCount: number;
+    windowCount: number;
 }
 
 export interface CanvasLayers {
@@ -41,6 +44,7 @@ export interface CanvasLayers {
 interface GraphRegistry {
     walls: WallGraph;
     doors: DoorStore;
+    windows: WindowStore;
 }
 
 export class CanvasStore {
@@ -56,7 +60,8 @@ export class CanvasStore {
         // Initialize all graphs
         this.graphs = {
             walls: new WallGraph(this.eventManager),
-            doors: DoorStore.getInstance(this.eventManager, this.logger)
+            doors: DoorStore.getInstance(this.eventManager, this.logger),
+            windows: WindowStore.getInstance(this.eventManager, this.logger)
         };
         
         this.setupSubscriptions();
@@ -81,6 +86,10 @@ export class CanvasStore {
         return this.graphs.doors;
     }
 
+    getWindowStore(): WindowStore {
+        return this.graphs.windows;
+    }
+
     private setupSubscriptions(): void {
         // Object events
         this.eventManager.on<ObjectCreatedEvent>('object:created', () => {
@@ -103,6 +112,12 @@ export class CanvasStore {
         // Door change events
         this.eventManager.on('door:changed', () => {
             this.logger.info('Door state changed, triggering redraw');
+            this.redraw$.next();
+        });
+
+        // Window change events
+        this.eventManager.on('window:changed', () => {
+            this.logger.info('Window state changed, triggering redraw');
             this.redraw$.next();
         });
 
@@ -135,10 +150,12 @@ export class CanvasStore {
     private renderObjects(layer: Layer): void {
         const wallGraph = this.graphs.walls;
         const doorStore = this.graphs.doors;
+        const windowStore = this.graphs.windows;
 
         this.logger.info('Rendering objects:', {
             walls: wallGraph.getAllWalls().length,
             doors: doorStore.getAllDoors().length,
+            windows: windowStore.getAllWindows().length,
             rooms: wallGraph.getAllRooms().length,
             nodes: wallGraph.getAllNodes().length
         });
@@ -148,11 +165,15 @@ export class CanvasStore {
             wall.render(layer);
         });
 
-        // Render doors next (middle layer)
+        // Render doors and windows next (middle layer)
         const doors = doorStore.getAllDoors();
-        this.logger.info('Rendering doors:', {
-            count: doors.length,
-            doorIds: doors.map(d => d.id)
+        const windows = windowStore.getAllWindows();
+        
+        this.logger.info('Rendering doors and windows:', {
+            doorCount: doors.length,
+            doorIds: doors.map(d => d.id),
+            windowCount: windows.length,
+            windowIds: windows.map(w => w.id)
         });
         
         doors.forEach(door => {
@@ -162,6 +183,15 @@ export class CanvasStore {
                 position: door.getData().position
             });
             door.render(layer);
+        });
+
+        windows.forEach(window => {
+            this.logger.info('Rendering window:', {
+                id: window.id,
+                wallId: window.getData().wallId,
+                position: window.getData().position
+            });
+            window.render(layer);
         });
 
         // Render rooms next (upper middle layer)
