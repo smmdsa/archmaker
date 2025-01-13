@@ -183,6 +183,14 @@ export class WallTool extends BaseTool {
             } else if (wall.getEndNodeId() === this.state.activeNode!.id) {
                 wall.updateEndPoint(targetPosition);
             }
+
+            // Emit wall:moved event
+            this.eventManager.emit('wall:moved', {
+                wallId: wall.id,
+                wall: wall,
+                newStartPoint: wall.getData().startPoint,
+                newEndPoint: wall.getData().endPoint
+            });
         });
 
         // Force walls to re-render
@@ -385,6 +393,52 @@ export class WallTool extends BaseTool {
         const wall2 = graph.createWall(newNode.id, wallData.endNodeId);
 
         if (wall1 && wall2) {
+            // Handle doors on the original wall before removing it
+            const doorStore = this.canvasStore.getDoorStore();
+            const doorsOnWall = doorStore.getAllDoors()
+                .filter(door => door.getData().wallId === this.state.activeWall!.id);
+
+            // For each door, determine which new wall it should be attached to
+            doorsOnWall.forEach(door => {
+                const doorData = door.getData();
+                const doorPos = doorData.position;
+
+                // Calculate relative position of door on original wall
+                const wallStartPoint = wallData.startPoint;
+                const wallEndPoint = wallData.endPoint;
+                const wallLength = this.getDistance(wallStartPoint, wallEndPoint);
+                const doorToStartDist = this.getDistance(doorPos, wallStartPoint);
+                const relativePosition = doorToStartDist / wallLength;
+
+                // Determine which new wall the door belongs to
+                const newWall = relativePosition <= 0.5 ? wall1 : wall2;
+                const newWallData = newWall.getData();
+                const newWallLength = this.getDistance(newWallData.startPoint, newWallData.endPoint);
+                const newDoorDist = relativePosition <= 0.5 ? 
+                    (doorToStartDist / wallLength) * newWallLength :
+                    ((doorToStartDist - wallLength/2) / (wallLength/2)) * newWallLength;
+
+                // Calculate new door position
+                const dx = newWallData.endPoint.x - newWallData.startPoint.x;
+                const dy = newWallData.endPoint.y - newWallData.startPoint.y;
+                const angle = Math.atan2(dy, dx);
+                const newPosition: Point = {
+                    x: newWallData.startPoint.x + Math.cos(angle) * newDoorDist,
+                    y: newWallData.startPoint.y + Math.sin(angle) * newDoorDist
+                };
+
+                // Update door with new wall reference and position
+                door.updatePosition(newPosition);
+                door.updateWallReference(newWall);
+
+                this.logger.info('Door reassigned after wall split', {
+                    doorId: door.id,
+                    originalWallId: this.state.activeWall!.id,
+                    newWallId: newWall.id,
+                    newPosition
+                });
+            });
+
             // Remove the original wall
             graph.removeWall(this.state.activeWall.id);
 
@@ -392,7 +446,8 @@ export class WallTool extends BaseTool {
                 originalWallId: this.state.activeWall.id,
                 newNodeId: newNode.id,
                 wall1Id: wall1.id,
-                wall2Id: wall2.id
+                wall2Id: wall2.id,
+                affectedDoors: doorsOnWall.map(d => d.id)
             });
         }
 

@@ -29,9 +29,10 @@ export interface DoorData {
     startNodeId: string;
     endNodeId: string;
     properties: DoorProperties;
+    isFlipped: boolean;
     connectedNodes: {
-        startWallNodeId?: string;  // ID of the wall node connected to start
-        endWallNodeId?: string;    // ID of the wall node connected to end
+        startWallNodeId?: string;
+        endWallNodeId?: string;
     };
 }
 
@@ -92,6 +93,7 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         this.data = {
             ...data,
             id,
+            isFlipped: data.isFlipped ?? false,
             properties: {
                 color: data.properties.color || '#8B4513',
                 width: data.properties.width || 100,
@@ -396,6 +398,40 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         this.updateDoorPosition();
     }
 
+    // New method to flip the door
+    flipDoor(): void {
+        this.data.isFlipped = !this.data.isFlipped;
+        
+        // Swap start and end nodes
+        const tempStartNode = this.startNodeObject;
+        this.startNodeObject = this.endNodeObject;
+        this.endNodeObject = tempStartNode;
+
+        // Update node IDs in data
+        const tempStartId = this.data.startNodeId;
+        this.data.startNodeId = this.data.endNodeId;
+        this.data.endNodeId = tempStartId;
+
+        // Update connected wall nodes
+        const tempStartWallId = this.data.connectedNodes.startWallNodeId;
+        this.data.connectedNodes.startWallNodeId = this.data.connectedNodes.endWallNodeId;
+        this.data.connectedNodes.endWallNodeId = tempStartWallId;
+
+        // Adjust angle by 180 degrees
+        this.data.angle = (this.data.angle + Math.PI) % (2 * Math.PI);
+
+        // Toggle open direction
+        this.data.properties.openDirection = 
+            this.data.properties.openDirection === 'left' ? 'right' : 'left';
+
+        // Update visual representation
+        this.updateGeometry();
+        if (this.group) {
+            this.group.rotation(this.data.angle * 180 / Math.PI);
+            this.group.getLayer()?.batchDraw();
+        }
+    }
+
     // Required interface implementations
     render(layer: Layer): void {
         // Destroy previous elements if they exist
@@ -423,9 +459,11 @@ export class DoorObject extends BaseObject implements ISelectableObject {
             tension: 0.2
         });
 
-        // Create door line with current style
+        // Create door line with current style and flip state
         this.doorLine = new Line({
-            points: [-this.data.properties.width/2, 0, this.data.properties.width/2, 0],
+            points: this.data.isFlipped ? 
+                [this.data.properties.width/2, 0, -this.data.properties.width/2, 0] :
+                [-this.data.properties.width/2, 0, this.data.properties.width/2, 0],
             stroke: style.stroke,
             strokeWidth: style.strokeWidth
         });
