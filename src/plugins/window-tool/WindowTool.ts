@@ -859,34 +859,29 @@ export class WindowTool extends BaseTool {
         // For each affected window, find the closest new wall segment
         affectedWindows.forEach(window => {
             const windowPos = window.getData().position;
-            let closestWall: WallObject | null = null;
-            let minDistance = Infinity;
+            
+            // Find which new wall segment is closest to the window's current position
+            let closestWall = event.newWalls[0].wall;
+            let minDistance = this.getDistanceToWall(windowPos, closestWall);
 
-            // Find the closest new wall segment
-            event.newWalls.forEach(({ wall }) => {
-                const nearestPoint = this.getNearestPointOnWall(windowPos, wall);
-                const distance = this.getDistance(windowPos, nearestPoint);
-                
+            for (const { wall } of event.newWalls) {
+                const distance = this.getDistanceToWall(windowPos, wall);
                 if (distance < minDistance) {
                     minDistance = distance;
                     closestWall = wall;
                 }
-            });
-
-            if (closestWall) {
-                // Update window's wall reference
-                window.updateWallReference(closestWall);
-                
-                // Ensure window is properly positioned on the new wall
-                const snappedPos = this.getNearestPointOnWall(windowPos, closestWall);
-                window.updatePosition(snappedPos);
-
-                this.logger.info('Window tool: Reassigned window to new wall segment', {
-                    windowId: window.id,
-                    newWallId: closestWall.id,
-                    newPosition: snappedPos
-                });
             }
+
+            // Only update the wall reference, maintaining the window's exact position
+            window.updateWallReference(closestWall);
+
+            this.logger.info('Window tool: Reassigned window after wall split', {
+                windowId: window.id,
+                originalWallId: event.originalWallId,
+                newWallId: closestWall.id,
+                position: windowPos,
+                distanceToWall: minDistance
+            });
         });
 
         // Force redraw
@@ -894,5 +889,26 @@ export class WindowTool extends BaseTool {
         if (layers?.mainLayer) {
             layers.mainLayer.batchDraw();
         }
+    }
+
+    // Helper method to calculate the perpendicular distance from a point to a wall
+    private getDistanceToWall(point: Point, wall: WallObject): number {
+        const wallData = wall.getData();
+        const start = wallData.startPoint;
+        const end = wallData.endPoint;
+
+        // Calculate wall vector
+        const wallDx = end.x - start.x;
+        const wallDy = end.y - start.y;
+        const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+        if (wallLength === 0) return Infinity;
+
+        // Calculate perpendicular distance using the point-to-line formula
+        const distance = Math.abs(
+            (wallDy * point.x - wallDx * point.y + end.x * start.y - end.y * start.x) / wallLength
+        );
+
+        return distance;
     }
 } 

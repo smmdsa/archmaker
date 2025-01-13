@@ -393,6 +393,15 @@ export class WallTool extends BaseTool {
         const wall2 = graph.createWall(newNode.id, wallData.endNodeId);
 
         if (wall1 && wall2) {
+            // Emit wall:split event before handling doors
+            this.eventManager.emit('wall:split', {
+                originalWallId: this.state.activeWall.id,
+                newWalls: [
+                    { id: wall1.id, wall: wall1 },
+                    { id: wall2.id, wall: wall2 }
+                ]
+            });
+
             // Handle doors on the original wall before removing it
             const doorStore = this.canvasStore.getDoorStore();
             const doorsOnWall = doorStore.getAllDoors()

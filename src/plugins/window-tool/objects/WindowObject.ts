@@ -487,4 +487,45 @@ export class WindowObject extends BaseObject implements ISelectableObject {
             this.group.getLayer()?.batchDraw();
         }
     }
+
+    private findNearestWallNode(position: Point): { nodeId: string, distance: number } | null {
+        const nodes = this.wallGraph.getAllNodes();
+        let nearestNode: { nodeId: string, distance: number } | null = null;
+        let minDistance = Infinity;
+
+        nodes.forEach(node => {
+            const distance = Math.sqrt(
+                Math.pow(node.position.x - position.x, 2) +
+                Math.pow(node.position.y - position.y, 2)
+            );
+
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestNode = { nodeId: node.id, distance };
+            }
+        });
+
+        // Only return if within snapping distance (e.g., 10 pixels)
+        return nearestNode && nearestNode.distance <= 10 ? nearestNode : null;
+    }
+
+    snapToWallNodes(): void {
+        const startPos = this.startNodeObject.position;
+        const endPos = this.endNodeObject.position;
+
+        // Try to snap start node
+        const nearestStartNode = this.findNearestWallNode(startPos);
+        if (nearestStartNode) {
+            this.connectToWallNodes(nearestStartNode.nodeId, this.data.connectedNodes.endWallNodeId);
+        }
+
+        // Try to snap end node
+        const nearestEndNode = this.findNearestWallNode(endPos);
+        if (nearestEndNode) {
+            this.connectToWallNodes(this.data.connectedNodes.startWallNodeId, nearestEndNode.nodeId);
+        }
+
+        // Update window position and geometry
+        this.updateWindowPosition();
+    }
 } 
