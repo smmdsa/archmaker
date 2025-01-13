@@ -114,6 +114,14 @@ export class DoorTool extends BaseTool {
             this.handleWallMovement(event);
         });
 
+        // Subscribe to wall split events
+        this.eventManager.on('wall:split', (event: { 
+            originalWallId: string,
+            newWalls: { id: string, wall: WallObject }[]
+        }) => {
+            this.handleWallSplit(event);
+        });
+
         // Subscribe to keyboard events for door flipping
         this.eventManager.on('keyboard:keydown', (event: KeyboardEvent) => {
             if (this.isActive() && event.key.toLowerCase() === 'f') {
@@ -850,5 +858,77 @@ export class DoorTool extends BaseTool {
         }
 
         return true;
+    }
+
+    private handleWallSplit(event: {
+        originalWallId: string,
+        newWalls: { id: string, wall: WallObject }[]
+    }): void {
+        // Get all doors that were on the original wall
+        const affectedDoors = this.doorStore.getAllDoors()
+            .filter(door => door.getData().wallId === event.originalWallId);
+
+        if (affectedDoors.length === 0) return;
+
+        this.logger.info('Door tool: Handling wall split', {
+            originalWallId: event.originalWallId,
+            newWallIds: event.newWalls.map(w => w.id),
+            affectedDoors: affectedDoors.map(d => d.id)
+        });
+
+        // For each affected door, find the closest new wall segment
+        affectedDoors.forEach(door => {
+            const doorPos = door.getData().position;
+            
+            // Find which new wall segment is closest to the door's current position
+            let closestWall = event.newWalls[0].wall;
+            let minDistance = this.getDistanceToWall(doorPos, closestWall);
+
+            for (const { wall } of event.newWalls) {
+                const distance = this.getDistanceToWall(doorPos, wall);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestWall = wall;
+                }
+            }
+
+            // Only update the wall reference, maintaining the door's exact position
+            door.updateWallReference(closestWall);
+
+            this.logger.info('Door tool: Reassigned door after wall split', {
+                doorId: door.id,
+                originalWallId: event.originalWallId,
+                newWallId: closestWall.id,
+                position: doorPos,
+                distanceToWall: minDistance
+            });
+        });
+
+        // Force redraw
+        const layers = this.canvasStore.getLayers();
+        if (layers?.mainLayer) {
+            layers.mainLayer.batchDraw();
+        }
+    }
+
+    // Helper method to calculate the perpendicular distance from a point to a wall
+    private getDistanceToWall(point: Point, wall: WallObject): number {
+        const wallData = wall.getData();
+        const start = wallData.startPoint;
+        const end = wallData.endPoint;
+
+        // Calculate wall vector
+        const wallDx = end.x - start.x;
+        const wallDy = end.y - start.y;
+        const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+        if (wallLength === 0) return Infinity;
+
+        // Calculate perpendicular distance using the point-to-line formula
+        const distance = Math.abs(
+            (wallDy * point.x - wallDx * point.y + end.x * start.y - end.y * start.x) / wallLength
+        );
+
+        return distance;
     }
 } 
