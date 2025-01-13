@@ -17,14 +17,19 @@ import { CanvasStore } from '../../store/CanvasStore';
 enum DoorToolMode {
     IDLE = 'idle',
     SELECTING_WALL = 'selecting_wall',
-    PLACING_DOOR = 'placing_door'
+    PLACING_DOOR = 'placing_door',
+    MOVING_DOOR = 'moving_door',
+    DRAGGING_DOOR = 'dragging_door'
 }
 
 interface DoorToolState {
     mode: DoorToolMode;
     selectedWall: WallObject | null;
+    selectedDoor: DoorObject | null;
     previewLine: Line | null;
     doorPosition: Point | null;
+    dragStartPosition: Point | null;
+    dragOffset: Point | null;
 }
 
 interface DoorProperties {
@@ -60,8 +65,11 @@ export class DoorTool extends BaseTool {
     private state: DoorToolState = {
         mode: DoorToolMode.IDLE,
         selectedWall: null,
+        selectedDoor: null,
         previewLine: null,
-        doorPosition: null
+        doorPosition: null,
+        dragStartPosition: null,
+        dragOffset: null
     };
     
     private doorStore: DoorStore;
@@ -163,6 +171,37 @@ export class DoorTool extends BaseTool {
                     this.updatePreview();
                 }
                 break;
+
+            case DoorToolMode.DRAGGING_DOOR:
+                if (!this.state.selectedDoor || !this.state.dragOffset) return;
+
+                // Find nearest wall for snapping
+                const nearestWallForDrag = this.findNearestWall(point);
+                if (nearestWallForDrag) {
+                    // Calculate new position considering drag offset
+                    const newPos = {
+                        x: point.x - this.state.dragOffset.x,
+                        y: point.y - this.state.dragOffset.y
+                    };
+
+                    // Get snapped position on wall
+                    const snappedPos = this.getNearestPointOnWall(newPos, nearestWallForDrag);
+                    
+                    // Update door position and wall reference
+                    this.state.selectedDoor.updatePosition(snappedPos);
+                    this.state.selectedDoor.updateWallReference(nearestWallForDrag);
+                    
+                    // Force redraw of the door
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        this.state.selectedDoor.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                    
+                    // Update preview if needed
+                    this.updateDragPreview(snappedPos, nearestWallForDrag);
+                }
+                break;
         }
     }
 
@@ -196,8 +235,14 @@ export class DoorTool extends BaseTool {
 
     private async handleMouseDown(point: Point): Promise<void> {
         if (this.state.mode === DoorToolMode.IDLE) {
-            this.state.mode = DoorToolMode.SELECTING_WALL;
-            this.logger.info('Door tool: Selecting wall');
+            const hitDoor = this.findDoorAtPosition(point);
+            if (hitDoor) {
+                this.highlightDoor(hitDoor);
+                this.initiateDoorDrag(hitDoor, point);
+            } else {
+                this.state.mode = DoorToolMode.SELECTING_WALL;
+                this.logger.info('Door tool: Selecting wall');
+            }
         }
     }
 
@@ -216,6 +261,32 @@ export class DoorTool extends BaseTool {
             this.clearPreview();
             
             this.logger.info('Door tool: Door placed');
+        } else if (this.state.mode === DoorToolMode.DRAGGING_DOOR) {
+            if (this.state.selectedDoor) {
+                // Finalize door movement
+                const nearestWall = this.findNearestWall(point);
+                if (nearestWall) {
+                    const finalPos = this.getNearestPointOnWall(point, nearestWall);
+                    this.state.selectedDoor.updatePosition(finalPos);
+                    this.state.selectedDoor.updateWallReference(nearestWall);
+                    
+                    this.logger.info('Door tool: Door movement completed', {
+                        doorId: this.state.selectedDoor.id,
+                        newPosition: finalPos,
+                        newWallId: nearestWall.id
+                    });
+                }
+                
+                // Clear highlight
+                this.state.selectedDoor.setHighlighted(false);
+            }
+            
+            // Reset state
+            this.state.selectedDoor = null;
+            this.state.dragStartPosition = null;
+            this.state.dragOffset = null;
+            this.state.mode = DoorToolMode.IDLE;
+            this.clearDragPreview();
         }
     }
 
@@ -227,15 +298,19 @@ export class DoorTool extends BaseTool {
         // Clear existing preview
         this.clearPreview();
 
-        // Create preview line
+        const angle = this.calculateDoorAngle(this.state.selectedWall);
+        const perpAngle = angle + Math.PI/2;
+        const doorWidth = 100;
+
+        // Create preview line perpendicular to wall
         this.state.previewLine = new Line({
-            points: [-50, 0, 50, 0], // 1-meter door preview
+            points: [-doorWidth/2, 0, doorWidth/2, 0],
             stroke: '#666',
             strokeWidth: 2,
             dash: [5, 5],
             x: this.state.doorPosition.x,
             y: this.state.doorPosition.y,
-            rotation: this.calculateDoorAngle(this.state.selectedWall) * 180 / Math.PI
+            rotation: angle * 180 / Math.PI // Convert to degrees for Konva
         });
 
         this.layer.add(this.state.previewLine);
@@ -253,97 +328,50 @@ export class DoorTool extends BaseTool {
         try {
             this.logger.info('Starting door placement', { wallId: wall.id, point });
 
-            // Calculate door width (100cm)
-            const doorWidth = 100;
-            const wallData = wall.getData();
+            // Calculate wall angle and door width
             const angle = this.calculateDoorAngle(wall);
+            const doorWidth = 100; // 100cm standard door width
 
-            // Calculate door node positions (50cm on each side)
-            const leftOffset = {
-                x: -50 * Math.cos(angle),
-                y: -50 * Math.sin(angle)
-            };
-            const rightOffset = {
-                x: 50 * Math.cos(angle),
-                y: 50 * Math.sin(angle)
-            };
-
-            const leftPoint = {
-                x: point.x + leftOffset.x,
-                y: point.y + leftOffset.y
-            };
-            const rightPoint = {
-                x: point.x + rightOffset.x,
-                y: point.y + rightOffset.y
-            };
-
-            // Create door nodes
-            const leftNode = this.wallGraph.createNode(leftPoint);
-            const rightNode = this.wallGraph.createNode(rightPoint);
-
-            if (!leftNode || !rightNode) {
-                throw new Error('Failed to create door nodes');
-            }
-
-            this.logger.info('Created door nodes', {
-                leftNodeId: leftNode.id,
-                rightNodeId: rightNode.id
-            });
-
-            // Create wall segments
-            const wall1 = this.wallGraph.createWall(wallData.startNodeId, leftNode.id);
-            const doorSegment = this.wallGraph.createWall(leftNode.id, rightNode.id);
-            const wall2 = this.wallGraph.createWall(rightNode.id, wallData.endNodeId);
-
-            if (!wall1 || !doorSegment || !wall2) {
-                throw new Error('Failed to create wall segments');
-            }
-
-            this.logger.info('Created wall segments', {
-                wall1Id: wall1.id,
-                doorSegmentId: doorSegment.id,
-                wall2Id: wall2.id
-            });
-
-            // Create and add door object BEFORE removing the original wall
+            // Create door data with the correct structure
             const doorData: DoorData = {
-                id: uuidv4(),
-                wallId: doorSegment.id,
+                id: uuidv4(), // ID should be part of the data
+                wallId: wall.id,
                 position: point,
                 angle: angle,
-                startNodeId: leftNode.id,
-                endNodeId: rightNode.id,
+                startNodeId: '', // Will be set by DoorObject
+                endNodeId: '', // Will be set by DoorObject
                 properties: {
                     color: '#8B4513',
                     width: doorWidth,
                     isOpen: false,
                     openDirection: 'left'
+                },
+                connectedNodes: {
+                    startWallNodeId: undefined,
+                    endWallNodeId: undefined
                 }
             };
 
-            const doorObject = new DoorObject(doorData);
-            this.doorStore.addDoor(doorObject);
+            // Create door object with the correct constructor signature
+            const doorObject = new DoorObject(doorData, this.wallGraph);
 
-            this.logger.info('Created door object', {
-                doorId: doorObject.id,
-                wallId: doorSegment.id,
-                startNodeId: leftNode.id,
-                endNodeId: rightNode.id
+            // Log door placement details for debugging
+            this.logger.info('Door placement details', {
+                wallAngle: angle * 180 / Math.PI,
+                position: point,
+                doorWidth
             });
 
-            // Remove original wall AFTER creating and adding the door
-            this.wallGraph.removeWall(wall.id);
-            this.logger.info('Removed original wall', { wallId: wall.id });
+            // Add door to store
+            this.doorStore.addDoor(doorObject);
 
-            // Emit graph changed event with updated counts
+            // Emit graph changed event
             this.eventManager.emit('graph:changed', {
                 nodeCount: this.wallGraph.getAllNodes().length,
                 wallCount: this.wallGraph.getAllWalls().length,
-                roomCount: this.wallGraph.getAllRooms().length,
                 doorCount: this.doorStore.getAllDoors().length
             });
 
-            this.logger.info('Door placement completed successfully');
         } catch (error) {
             this.logger.error('Failed to place door', error instanceof Error ? error : new Error('Unknown error'));
             throw error;
@@ -360,17 +388,109 @@ export class DoorTool extends BaseTool {
             return 0;
         }
         
+        // Calculate angle from wall direction
         const dx = endNode.position.x - startNode.position.x;
         const dy = endNode.position.y - startNode.position.y;
-        const angle = Math.atan2(dy, dx);
-        
-        this.logger.info('Calculated door angle:', {
-            startNode: startNode.position,
-            endNode: endNode.position,
-            angleRadians: angle,
-            angleDegrees: angle * 180 / Math.PI
+        return Math.atan2(dy, dx);
+    }
+
+    private findDoorAtPosition(point: Point): DoorObject | null {
+        const doors = this.doorStore.getAllDoors();
+        return doors.find(door => door.containsPoint(point)) || null;
+    }
+
+    private highlightDoor(door: DoorObject | null): void {
+        // Clear previous highlight
+        if (this.state.selectedDoor && this.state.selectedDoor !== door) {
+            this.state.selectedDoor.setHighlighted(false);
+        }
+        // Set new highlight
+        if (door) {
+            door.setHighlighted(true);
+        }
+        this.state.selectedDoor = door;
+    }
+
+    private initiateDoorDrag(door: DoorObject, point: Point): void {
+        const doorPos = door.getData().position;
+        this.state.dragOffset = {
+            x: point.x - doorPos.x,
+            y: point.y - doorPos.y
+        };
+        this.state.dragStartPosition = point;
+        this.state.mode = DoorToolMode.DRAGGING_DOOR;
+        this.logger.info('Door tool: Started dragging door', {
+            doorId: door.id,
+            startPosition: point
         });
-        
-        return angle;
+    }
+
+    private findNearestWall(point: Point): WallObject | null {
+        const walls = this.wallGraph.getAllWalls();
+        let nearestWall: WallObject | null = null;
+        let minDistance = Infinity;
+
+        for (const wall of walls) {
+            if (wall.containsPoint(point)) {
+                return wall;
+            }
+            
+            const nearestPoint = this.getNearestPointOnWall(point, wall);
+            const distance = this.getDistance(point, nearestPoint);
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestWall = wall;
+            }
+        }
+
+        // Only return wall if within reasonable distance (e.g., 20 pixels)
+        return minDistance <= 20 ? nearestWall : null;
+    }
+
+    private getDistance(p1: Point, p2: Point): number {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private updateDragPreview(position: Point, wall: WallObject): void {
+        // Clear existing preview
+        this.clearDragPreview();
+
+        if (!this.layer) return;
+
+        const angle = this.calculateDoorAngle(wall);
+        const doorWidth = this.state.selectedDoor?.getData().properties.width || 100;
+
+        // Create preview line
+        this.state.previewLine = new Line({
+            points: [-doorWidth/2, 0, doorWidth/2, 0],
+            stroke: '#666',
+            strokeWidth: 2,
+            dash: [5, 5],
+            x: position.x,
+            y: position.y,
+            rotation: angle * 180 / Math.PI
+        });
+
+        // Add to temp layer instead of main layer for preview
+        const layers = this.canvasStore.getLayers();
+        if (layers?.tempLayer) {
+            layers.tempLayer.add(this.state.previewLine);
+            layers.tempLayer.batchDraw();
+        }
+    }
+
+    private clearDragPreview(): void {
+        if (this.state.previewLine) {
+            this.state.previewLine.destroy();
+            this.state.previewLine = null;
+            
+            const layers = this.canvasStore.getLayers();
+            if (layers?.tempLayer) {
+                layers.tempLayer.batchDraw();
+            }
+        }
     }
 } 

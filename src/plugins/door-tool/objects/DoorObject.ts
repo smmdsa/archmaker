@@ -8,6 +8,9 @@ import { Text } from 'konva/lib/shapes/Text';
 import { Circle } from 'konva/lib/shapes/Circle';
 import { Rect } from 'konva/lib/shapes/Rect';
 import { v4 as uuidv4 } from 'uuid';
+import { NodeObject } from '../../wall-tool/objects/NodeObject';
+import { WallGraph } from '../../wall-tool/models/WallGraph';
+import { WallObject } from '../../wall-tool/objects/WallObject';
 
 // Business logic interfaces
 export interface DoorProperties {
@@ -26,6 +29,10 @@ export interface DoorData {
     startNodeId: string;
     endNodeId: string;
     properties: DoorProperties;
+    connectedNodes: {
+        startWallNodeId?: string;  // ID of the wall node connected to start
+        endWallNodeId?: string;    // ID of the wall node connected to end
+    };
 }
 
 // Visual styles
@@ -69,7 +76,11 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         }
     };
 
-    constructor(data: Omit<DoorData, 'id'>) {
+    private startNodeObject: NodeObject;
+    private endNodeObject: NodeObject;
+    private wallGraph: WallGraph;
+
+    constructor(data: Omit<DoorData, 'id'>, wallGraph: WallGraph) {
         const id = uuidv4();
         super(id, SelectableObjectType.DOOR, data.position, {
             x: data.position.x - data.properties.width / 2,
@@ -87,12 +98,30 @@ export class DoorObject extends BaseObject implements ISelectableObject {
                 isOpen: data.properties.isOpen ?? false,
                 openDirection: data.properties.openDirection || 'left',
                 label: data.properties.label || ''
-            }
+            },
+            connectedNodes: {}
         };
 
         // Update styles based on properties
         this.styles.normal.stroke = this.data.properties.color;
         this.styles.normal.fill = this.data.properties.color;
+
+        this.wallGraph = wallGraph;
+        
+        // Create actual node objects for the door endpoints
+        this.startNodeObject = new NodeObject(uuidv4(), {
+            x: this.data.position.x - this.data.properties.width/2,
+            y: this.data.position.y
+        });
+        
+        this.endNodeObject = new NodeObject(uuidv4(), {
+            x: this.data.position.x + this.data.properties.width/2,
+            y: this.data.position.y
+        });
+        
+        // Store node IDs
+        this.data.startNodeId = this.startNodeObject.id;
+        this.data.endNodeId = this.endNodeObject.id;
     }
 
     // Public API for business logic
@@ -237,6 +266,136 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         return points;
     }
 
+    // Method to connect door nodes to wall nodes
+    connectToWallNodes(startWallNodeId?: string, endWallNodeId?: string): void {
+        this.data.connectedNodes = {
+            startWallNodeId,
+            endWallNodeId
+        };
+        
+        // Update positions based on connected wall nodes
+        if (startWallNodeId) {
+            const startWallNode = this.wallGraph.getNode(startWallNodeId);
+            if (startWallNode) {
+                this.startNodeObject.setPosition(startWallNode.position.x, startWallNode.position.y);
+            }
+        }
+        
+        if (endWallNodeId) {
+            const endWallNode = this.wallGraph.getNode(endWallNodeId);
+            if (endWallNode) {
+                this.endNodeObject.setPosition(endWallNode.position.x, endWallNode.position.y);
+            }
+        }
+        
+        this.updateDoorPosition();
+    }
+
+    // Method to move the entire door as a unit
+    moveTo(newPosition: Point): void {
+        const dx = newPosition.x - this.data.position.x;
+        const dy = newPosition.y - this.data.position.y;
+        
+        // Move both nodes
+        const startPos = this.startNodeObject.position;
+        const endPos = this.endNodeObject.position;
+        
+        this.startNodeObject.setPosition(startPos.x + dx, startPos.y + dy);
+        this.endNodeObject.setPosition(endPos.x + dx, endPos.y + dy);
+        
+        // Update door position
+        this.data.position = newPosition;
+        
+        // Update connected wall nodes if they exist
+        if (this.data.connectedNodes.startWallNodeId) {
+            const startWallNode = this.wallGraph.getNode(this.data.connectedNodes.startWallNodeId);
+            if (startWallNode) {
+                startWallNode.setPosition(startPos.x + dx, startPos.y + dy);
+            }
+        }
+        
+        if (this.data.connectedNodes.endWallNodeId) {
+            const endWallNode = this.wallGraph.getNode(this.data.connectedNodes.endWallNodeId);
+            if (endWallNode) {
+                endWallNode.setPosition(endPos.x + dx, endPos.y + dy);
+            }
+        }
+        
+        // Update visual representation
+        if (this.group) {
+            this.group.position({
+                x: newPosition.x,
+                y: newPosition.y
+            });
+            this.group.getLayer()?.batchDraw();
+        }
+        
+        this.updateGeometry();
+    }
+
+    // Method to update door position based on its nodes
+    private updateDoorPosition(): void {
+        const startPos = this.startNodeObject.position;
+        const endPos = this.endNodeObject.position;
+        
+        // Calculate center position
+        this.data.position = {
+            x: (startPos.x + endPos.x) / 2,
+            y: (startPos.y + endPos.y) / 2
+        };
+        
+        // Calculate angle
+        this.data.angle = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x);
+        
+        // Update width based on actual distance between nodes
+        const dx = endPos.x - startPos.x;
+        const dy = endPos.y - startPos.y;
+        this.data.properties.width = Math.sqrt(dx * dx + dy * dy);
+        
+        this.updateGeometry();
+    }
+
+    // Method to find the nearest wall node within snap distance
+    private findNearestWallNode(point: Point, maxDistance: number = 10): { nodeId: string, distance: number } | null {
+        const nodes = this.wallGraph.getAllNodes();
+        let nearestNode = null;
+        let minDistance = maxDistance;
+
+        for (const node of nodes) {
+            const dx = node.position.x - point.x;
+            const dy = node.position.y - point.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestNode = { nodeId: node.id, distance };
+            }
+        }
+
+        return nearestNode;
+    }
+
+    // Method to snap door nodes to nearby wall nodes
+    snapToWallNodes(): void {
+        const startPos = this.startNodeObject.position;
+        const endPos = this.endNodeObject.position;
+
+        // Try to snap start node
+        const nearestStartNode = this.findNearestWallNode(startPos);
+        if (nearestStartNode) {
+            this.connectToWallNodes(nearestStartNode.nodeId, this.data.connectedNodes.endWallNodeId);
+        }
+
+        // Try to snap end node
+        const nearestEndNode = this.findNearestWallNode(endPos);
+        if (nearestEndNode) {
+            this.connectToWallNodes(this.data.connectedNodes.startWallNodeId, nearestEndNode.nodeId);
+        }
+
+        // Update door position and geometry
+        this.updateDoorPosition();
+    }
+
     // Required interface implementations
     render(layer: Layer): void {
         // Destroy previous elements if they exist
@@ -345,7 +504,12 @@ export class DoorObject extends BaseObject implements ISelectableObject {
     }
 
     destroy(): void {
+        // Clean up the visual elements
         this.group?.destroy();
+        
+        // Clear references to nodes
+        this.startNodeObject = null as any;
+        this.endNodeObject = null as any;
     }
 
     containsPoint(point: Point): boolean {
@@ -353,5 +517,25 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         const localPoint = this.group.getAbsoluteTransform().invert().point(point);
         return Math.abs(localPoint.y) <= 5 && 
                Math.abs(localPoint.x) <= this.data.properties.width / 2;
+    }
+
+    updatePosition(newPosition: Point): void {
+        this.moveTo(newPosition);
+    }
+
+    updateWallReference(wall: WallObject): void {
+        this.data.wallId = wall.id;
+        // Update angle based on new wall
+        const wallData = wall.getData();
+        const dx = wallData.endPoint.x - wallData.startPoint.x;
+        const dy = wallData.endPoint.y - wallData.startPoint.y;
+        this.data.angle = Math.atan2(dy, dx);
+        
+        // Update geometry and redraw
+        this.updateGeometry();
+        if (this.group) {
+            this.group.rotation(this.data.angle * 180 / Math.PI);
+            this.group.getLayer()?.batchDraw();
+        }
     }
 } 
