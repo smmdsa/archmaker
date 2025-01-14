@@ -260,7 +260,7 @@ export class WindowTool extends BaseTool {
                     const newPosition = this.getNearestPointOnWall(point, nearestWall);
                     
                     // Create temporary window data for validation
-                    const tempWindowData = {
+                    const tempWindowData: WindowData = {
                         id: '',
                         wallId: nearestWall.id,
                         position: newPosition,
@@ -273,7 +273,7 @@ export class WindowTool extends BaseTool {
                             height: 150,
                             color: '#FF69B4',
                             isOpen: false,
-                            openDirection: 'left'
+                            openDirection: 'left' as 'left' | 'right'
                         },
                         connectedNodes: {}
                     };
@@ -291,16 +291,13 @@ export class WindowTool extends BaseTool {
             case WindowToolMode.MOVING_WINDOW:
             case WindowToolMode.DRAGGING_WINDOW:
                 if (!this.state.selectedWindow || !this.state.dragOffset) {
-                    this.logger.warn('Window tool: No window selected or drag offset missing during drag', {
-                        selectedWindow: this.state.selectedWindow?.id,
-                        dragOffset: this.state.dragOffset,
-                        mode: this.state.mode
-                    });
+                    this.resetToolState();
                     return;
                 }
 
                 const nearestWallForDrag = this.findNearestWall(point);
                 if (nearestWallForDrag) {
+                    // Calculate new position in world coordinates
                     const newPos = {
                         x: point.x - this.state.dragOffset.x,
                         y: point.y - this.state.dragOffset.y
@@ -320,13 +317,6 @@ export class WindowTool extends BaseTool {
                         }
                         
                         this.updateDragPreview(snappedPos, nearestWallForDrag);
-                        
-                        this.logger.info('Window tool: Window dragged', {
-                            windowId: this.state.selectedWindow.id,
-                            newPosition: snappedPos,
-                            wallId: nearestWallForDrag.id,
-                            mode: this.state.mode
-                        });
                     }
                 }
                 break;
@@ -363,7 +353,7 @@ export class WindowTool extends BaseTool {
                 source: 'window-tool'
             });
 
-            // Calculate drag offset
+            // Calculate drag offset in world coordinates
             const windowPos = hitWindow.getData().position;
             this.state.dragOffset = {
                 x: event.position.x - windowPos.x,
@@ -374,12 +364,6 @@ export class WindowTool extends BaseTool {
             // Set mode based on mouse button
             if (event.originalEvent instanceof MouseEvent && event.originalEvent.button === 0) {
                 this.state.mode = WindowToolMode.DRAGGING_WINDOW;
-                this.logger.info('Window tool: Started dragging window', {
-                    windowId: hitWindow.id,
-                    startPosition: event.position,
-                    mode: this.state.mode,
-                    dragOffset: this.state.dragOffset
-                });
             } else {
                 this.state.mode = WindowToolMode.MOVING_WINDOW;
             }
@@ -391,11 +375,6 @@ export class WindowTool extends BaseTool {
                 layers.mainLayer.batchDraw();
             }
 
-            this.logger.info('Window tool: Window selected', {
-                windowId: hitWindow.id,
-                mode: this.state.mode,
-                dragOffset: this.state.dragOffset
-            });
             return;
         }
 

@@ -619,13 +619,75 @@ export class DoorObject extends BaseObject implements ISelectableObject {
 
     containsPoint(point: Point): boolean {
         if (!this.group) return false;
-        const localPoint = this.group.getAbsoluteTransform().invert().point(point);
-        return Math.abs(localPoint.y) <= 5 && 
-               Math.abs(localPoint.x) <= this.data.properties.width / 2;
+
+        // Get the door's current transform
+        const transform = this.group.getAbsoluteTransform();
+        
+        // Get door endpoints in world coordinates
+        const width = this.data.properties.width;
+        const halfWidth = width / 2;
+        const startPoint = transform.point({ x: -halfWidth, y: 0 });
+        const endPoint = transform.point({ x: halfWidth, y: 0 });
+        
+        // Calculate distance from point to line segment
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length === 0) return false;
+        
+        // Calculate projection of point onto line
+        const t = (
+            (point.x - startPoint.x) * dx +
+            (point.y - startPoint.y) * dy
+        ) / (length * length);
+        
+        // If t < 0, closest point is start point
+        // If t > 1, closest point is end point
+        // Otherwise, closest point is on the line segment
+        if (t < 0 || t > 1) return false;
+        
+        // Calculate closest point on line
+        const closestPoint = {
+            x: startPoint.x + t * dx,
+            y: startPoint.y + t * dy
+        };
+        
+        // Check if point is within threshold distance
+        const distanceToLine = Math.sqrt(
+            Math.pow(point.x - closestPoint.x, 2) +
+            Math.pow(point.y - closestPoint.y, 2)
+        );
+        
+        return distanceToLine <= 5; // 5 pixels threshold
     }
 
     updatePosition(newPosition: Point): void {
-        this.moveTo(newPosition);
+        // Update internal data
+        this.data.position = newPosition;
+        
+        // Update visual representation
+        if (this.group) {
+            this.group.position(newPosition);
+            this.group.getLayer()?.batchDraw();
+        }
+        
+        // Update node positions
+        const angle = this.data.angle;
+        const halfWidth = this.data.properties.width / 2;
+        
+        const startPos = {
+            x: newPosition.x - Math.cos(angle) * halfWidth,
+            y: newPosition.y - Math.sin(angle) * halfWidth
+        };
+        
+        const endPos = {
+            x: newPosition.x + Math.cos(angle) * halfWidth,
+            y: newPosition.y + Math.sin(angle) * halfWidth
+        };
+        
+        this.startNodeObject.setPosition(startPos.x, startPos.y);
+        this.endNodeObject.setPosition(endPos.x, endPos.y);
     }
 
     updateWallReference(wall: WallObject): void {

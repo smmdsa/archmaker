@@ -251,16 +251,31 @@ export class DoorTool extends BaseTool {
         }
     }
 
+    private getWorldPosition(screenPos: Point): Point | null {
+        const layers = this.canvasStore.getLayers();
+        if (!layers?.mainLayer) return null;
+        
+        const stage = layers.mainLayer.getStage();
+        if (!stage) return null;
+
+        return {
+            x: (screenPos.x - stage.x()) / stage.scaleX(),
+            y: (screenPos.y - stage.y()) / stage.scaleY()
+        };
+    }
+
     private async handleMouseMove(point: Point): Promise<void> {
+        const worldPoint = this.getWorldPosition(point);
+        if (!worldPoint) return;
+
         switch (this.state.mode) {
             case DoorToolMode.SELECTING_WALL:
-                // Find wall under cursor
+                // Find wall under cursor using world coordinates
                 const walls = this.wallGraph.getAllWalls();
                 let nearestWall: WallObject | null = null;
-                let minDistance = Infinity;
 
                 for (const wall of walls) {
-                    if (wall.containsPoint(point)) {
+                    if (wall.containsPoint(worldPoint)) {
                         nearestWall = wall;
                         break;
                     }
@@ -277,7 +292,7 @@ export class DoorTool extends BaseTool {
 
                 // Update door position and validate
                 if (nearestWall) {
-                    const newPosition = this.getNearestPointOnWall(point, nearestWall);
+                    const newPosition = this.getNearestPointOnWall(worldPoint, nearestWall);
                     
                     // Create temporary door data for validation
                     const tempDoorData: DoorData = {
@@ -292,7 +307,7 @@ export class DoorTool extends BaseTool {
                             width: 100,
                             color: '#8B4513',
                             isOpen: false,
-                            openDirection: 'left'
+                            openDirection: 'left' as 'left' | 'right'
                         },
                         connectedNodes: {}
                     };
@@ -301,7 +316,6 @@ export class DoorTool extends BaseTool {
                         this.state.doorPosition = newPosition;
                         this.updatePreview();
                     } else {
-                        // Clear preview if position is invalid
                         this.clearPreview();
                     }
                 }
@@ -310,17 +324,16 @@ export class DoorTool extends BaseTool {
             case DoorToolMode.MOVING_DOOR:
             case DoorToolMode.DRAGGING_DOOR:
                 if (!this.state.selectedDoor || !this.state.dragOffset) {
-                    // If we somehow got into this state without a selected door or drag offset,
-                    // reset the tool state and return
                     this.resetToolState();
                     return;
                 }
 
-                const nearestWallForDrag = this.findNearestWall(point);
+                const nearestWallForDrag = this.findNearestWall(worldPoint);
                 if (nearestWallForDrag) {
+                    // Calculate new position in world coordinates
                     const newPos = {
-                        x: point.x - this.state.dragOffset.x,
-                        y: point.y - this.state.dragOffset.y
+                        x: worldPoint.x - this.state.dragOffset.x,
+                        y: worldPoint.y - this.state.dragOffset.y
                     };
 
                     const snappedPos = this.getNearestPointOnWall(newPos, nearestWallForDrag);
@@ -337,13 +350,6 @@ export class DoorTool extends BaseTool {
                         }
                         
                         this.updateDragPreview(snappedPos, nearestWallForDrag);
-                        
-                        this.logger.info('Door tool: Door dragged', {
-                            doorId: this.state.selectedDoor.id,
-                            newPosition: snappedPos,
-                            wallId: nearestWallForDrag.id,
-                            mode: this.state.mode
-                        });
                     }
                 }
                 break;
@@ -381,8 +387,11 @@ export class DoorTool extends BaseTool {
     private async handleMouseDown(event: CanvasEvent): Promise<void> {
         if (!event.position) return;
 
-        // Check if we hit a door
-        const hitDoor = this.findDoorAtPosition(event.position);
+        const worldPoint = this.getWorldPosition(event.position);
+        if (!worldPoint) return;
+
+        // Check if we hit a door using world coordinates
+        const hitDoor = this.findDoorAtPosition(worldPoint);
         
         if (hitDoor) {
             // Clear any existing selection
@@ -408,23 +417,17 @@ export class DoorTool extends BaseTool {
                 source: 'door-tool'
             });
 
-            // Always calculate dragOffset when selecting a door
+            // Calculate drag offset in world coordinates
             const doorPos = hitDoor.getData().position;
             this.state.dragOffset = {
-                x: event.position.x - doorPos.x,
-                y: event.position.y - doorPos.y
+                x: worldPoint.x - doorPos.x,
+                y: worldPoint.y - doorPos.y
             };
-            this.state.dragStartPosition = event.position;
+            this.state.dragStartPosition = worldPoint;
 
             // Set mode based on mouse button
             if (event.originalEvent instanceof MouseEvent && event.originalEvent.button === 0) {
                 this.state.mode = DoorToolMode.DRAGGING_DOOR;
-                this.logger.info('Door tool: Started dragging door', {
-                    doorId: hitDoor.id,
-                    startPosition: event.position,
-                    mode: this.state.mode,
-                    dragOffset: this.state.dragOffset
-                });
             } else {
                 this.state.mode = DoorToolMode.MOVING_DOOR;
             }
@@ -436,11 +439,6 @@ export class DoorTool extends BaseTool {
                 layers.mainLayer.batchDraw();
             }
 
-            this.logger.info('Door tool: Door selected', {
-                doorId: hitDoor.id,
-                mode: this.state.mode,
-                dragOffset: this.state.dragOffset
-            });
             return;
         }
 
@@ -828,6 +826,15 @@ export class DoorTool extends BaseTool {
     }
 
     private validateDoorPosition(door: DoorObject | DoorData, wall: WallObject): boolean {
+        // Skip validation if we're dragging the door and checking its current wall
+        if (this.state.mode === DoorToolMode.DRAGGING_DOOR || 
+            this.state.mode === DoorToolMode.MOVING_DOOR) {
+            if (door instanceof DoorObject && door === this.state.selectedDoor && 
+                wall.id === door.getData().wallId) {
+                return true;
+            }
+        }
+
         const doorWidth = door instanceof DoorObject ? 
             door.getData().properties.width : 
             door.properties.width;
@@ -876,7 +883,7 @@ export class DoorTool extends BaseTool {
             return false;
         }
 
-        // Check for overlapping doors
+        // Check for overlapping doors, excluding the door being dragged
         const doorsOnWall = this.doorStore.getAllDoors()
             .filter(d => d.getData().wallId === wall.id && 
                     (!(door instanceof DoorObject) || d.id !== door.id));
