@@ -10,6 +10,7 @@ import { Line } from 'konva/lib/shapes/Line';
 import { NodeObject } from './objects/NodeObject';
 import { WallObject } from './objects/WallObject';
 import { SelectionStore } from '../../store/SelectionStore';
+import { KonvaEventObject } from 'konva/lib/Node';
 
 enum WallToolMode {
     IDLE = 'idle',
@@ -95,24 +96,18 @@ export class WallTool extends BaseTool {
             }
         });
 
-        // Subscribe to double-click events
-        this.eventManager.on('canvas:dblclick', async (event: MouseEvent) => {
+        // Subscribe to double-click events on wall objects
+        this.eventManager.on('wall:dblclick', async (event: { wallId: string, position: Point }) => {
             if (!this.isActive()) return;
 
-            const position = {
-                x: event.offsetX,
-                y: event.offsetY
-            };
-
-            this.logger.info('Double click detected at position:', position);
-
-            // Check if we hit a wall
-            const hitWall = this.findWallAtPosition(position);
-            if (hitWall) {
-                this.logger.info('Wall hit on double click:', hitWall.id);
-                this.state.activeWall = hitWall;
+            this.logger.info('Double click on wall detected:', event);
+            
+            const wall = this.canvasStore.getWallGraph().getWall(event.wallId);
+            if (wall) {
+                this.logger.info('Wall hit on double click:', wall.id);
+                this.state.activeWall = wall;
                 this.state.mode = WallToolMode.SPLITTING_WALL;
-                await this.handleWallSplit(position);
+                await this.handleWallSplit(event.position);
             }
         });
 
@@ -763,7 +758,7 @@ export class WallTool extends BaseTool {
         if (!referencePoint) return result;
 
         // Get modifier keys from the original event
-        const mouseEvent = event.originalEvent?.evt as MouseEvent;
+        const mouseEvent = event.originalEvent as MouseEvent;
         
         this.logger.info('Applying modifier constraints:', {
             position,

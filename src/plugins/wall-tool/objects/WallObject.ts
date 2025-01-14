@@ -6,6 +6,7 @@ import { Line } from 'konva/lib/shapes/Line';
 import { Text } from 'konva/lib/shapes/Text';
 import { Group } from 'konva/lib/Group';
 import { WallData } from '../../../core/storage/interfaces';
+import { IEventManager } from '../../../core/interfaces/IEventManager';
 
 interface WallData {
     startNodeId: string;
@@ -26,6 +27,7 @@ export class WallObject extends BaseObject {
     private lengthLabel: Text | null = null;
     private thickness: number = 10;
     private height: number = 280;
+    private readonly eventManager: IEventManager;
 
     // Visual styles
     private readonly styles = {
@@ -49,6 +51,7 @@ export class WallObject extends BaseObject {
         endNodeId: string,
         startPoint: Point,
         endPoint: Point,
+        eventManager: IEventManager,
         thickness: number = 10,
         height: number = 280
     ) {
@@ -76,6 +79,7 @@ export class WallObject extends BaseObject {
         this.endNodeId = endNodeId;
         this.startPoint = startPoint;
         this.endPoint = endPoint;
+        this.eventManager = eventManager;
         this.thickness = thickness;
         this.height = height;
     }
@@ -98,9 +102,8 @@ export class WallObject extends BaseObject {
 
         // Create or update wall group
         if (!this.wallGroup) {
-            this.wallGroup = new Group({
-                name: `wall-${this.id}`
-            });
+            this.wallGroup = new Group();
+            layer.add(this.wallGroup);
 
             // Create wall line
             this.wallLine = new Line({
@@ -110,10 +113,28 @@ export class WallObject extends BaseObject {
                     this.endPoint.x,
                     this.endPoint.y
                 ],
-                stroke: style.stroke,
-                strokeWidth: style.strokeWidth,
-                name: `wall-line-${this.id}`
+                ...style,
+                hitStrokeWidth: 10 // Make hit area larger for easier selection
             });
+
+            // Add double-click handler to the wall line
+            this.wallLine.on('dblclick', (event) => {
+                // Get the position of the double-click relative to the stage
+                const stage = event.target.getStage();
+                const position = stage?.getPointerPosition();
+                if (!position) return;
+
+                // Emit wall:dblclick event
+                this.eventManager.emit('wall:dblclick', {
+                    wallId: this.id,
+                    position: position
+                });
+
+                // Stop event propagation
+                event.cancelBubble = true;
+            });
+
+            this.wallGroup.add(this.wallLine);
 
             // Calculate wall length in centimeters (1px = 1cm)
             const dx = this.endPoint.x - this.startPoint.x;
@@ -134,9 +155,7 @@ export class WallObject extends BaseObject {
                 name: `wall-label-${this.id}`
             });
 
-            this.wallGroup.add(this.wallLine);
             this.wallGroup.add(this.lengthLabel);
-            layer.add(this.wallGroup);
         } else {
             // Update existing elements
             if (this.wallLine) {
@@ -295,15 +314,19 @@ export class WallObject extends BaseObject {
         };
     }
 
-    static fromStorageData(data: WallData): WallObject {
+    static fromStorageData(
+        data: WallData,
+        eventManager: IEventManager
+    ): WallObject {
         return new WallObject(
             data.id,
             data.startNodeId,
             data.endNodeId,
             data.startPoint,
             data.endPoint,
-            data.thickness || 10,
-            data.height || 280
+            eventManager,
+            data.thickness,
+            data.height
         );
     }
 } 
