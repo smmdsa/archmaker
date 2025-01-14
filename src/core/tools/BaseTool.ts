@@ -80,7 +80,7 @@ export abstract class BaseTool implements IPlugin {
 
         this.active = true;
         this.logger.info(`Tool activated: ${this.manifest.id}`);
-        await this.eventManager.emit('tool:activated', { toolId: this.manifest.id });
+        await this.eventManager.emit('tool:activate', { toolId: this.manifest.id });
     }
 
     async deactivate(): Promise<void> {
