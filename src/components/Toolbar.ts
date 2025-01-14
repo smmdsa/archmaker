@@ -127,7 +127,12 @@ export class Toolbar {
         
         button.addEventListener('click', async () => {
             try {
-                await this.toolService.activateTool(tool.id);
+                const toolInstance = this.toolService.getTool(tool.id);
+                if (toolInstance) {
+                    await toolInstance.activate();
+                } else {
+                    this.logger.error(`Tool not found: ${tool.id}`);
+                }
             } catch (error) {
                 this.logger.error(`Failed to activate tool: ${tool.id}`, error as Error);
             }
