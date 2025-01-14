@@ -65,7 +65,8 @@ export class WallGraph {
             startNodeId,
             endNodeId,
             startNode.position,
-            endNode.position
+            endNode.position,
+            this.eventManager
         );
 
         this.walls.set(id, wall);

@@ -5,13 +5,9 @@ import type { IConfigManager } from '../../core/interfaces/IConfig';
 import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
 import { Point } from '../../core/types/geometry';
 import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
-import { RoomObject } from './objects/RoomObject';
-import { WallObject } from '../wall-tool/objects/WallObject';
-import { WallGraph } from '../wall-tool/models/WallGraph';
 import { CanvasStore } from '../../store/CanvasStore';
 import { Line } from 'konva/lib/shapes/Line';
 import { Layer } from 'konva/lib/Layer';
-import { v4 as uuidv4 } from 'uuid';
 
 interface RoomToolState {
     isDrawing: boolean;
@@ -93,7 +89,6 @@ export class RoomTool extends BaseTool {
         this.state.previewShape = new Line({
             points: [point.x, point.y, point.x, point.y, point.x, point.y, point.x, point.y],
             closed: true,
-            fill: 'rgba(200, 200, 200, 0.2)',
             stroke: '#666666',
             strokeWidth: 1,
             dash: [5, 5]
@@ -124,7 +119,7 @@ export class RoomTool extends BaseTool {
         const width = Math.abs(point.x - this.state.startPoint.x);
         const height = Math.abs(point.y - this.state.startPoint.y);
 
-        // Only create room if it has a minimum size
+        // Only create walls if it has a minimum size
         if (width > 20 && height > 20) {
             // Create walls using WallGraph
             const graph = this.canvasStore.getWallGraph();
@@ -141,45 +136,17 @@ export class RoomTool extends BaseTool {
             const nodes = corners.map(corner => graph.createNode(corner));
             
             // Create walls between nodes
-            const wallIds: string[] = [];
             for (let i = 0; i < nodes.length; i++) {
                 const startNode = nodes[i];
                 const endNode = nodes[(i + 1) % nodes.length];
-                
-                const wall = graph.createWall(startNode.id, endNode.id);
-                if (wall) {
-                    wallIds.push(wall.id);
-                }
+                graph.createWall(startNode.id, endNode.id);
             }
 
-            // Only create room if all walls were created successfully
-            if (wallIds.length === 4) {
-                // Calculate top-left corner for room
-                const startPoint: Point = {
-                    x: Math.min(this.state.startPoint.x, point.x),
-                    y: Math.min(this.state.startPoint.y, point.y)
-                };
-
-                // Create room object
-                const room = new RoomObject(
-                    uuidv4(),
-                    startPoint,
-                    width,
-                    height,
-                    wallIds,
-                    graph
-                );
-
-                // Add room to graph
-                graph.addRoom(room);
-
-                // Notify changes
-                this.eventManager.emit('graph:changed', {
-                    nodeCount: graph.getAllNodes().length,
-                    wallCount: graph.getAllWalls().length,
-                    roomCount: graph.getAllRooms().length
-                });
-            }
+            // Notify changes
+            this.eventManager.emit('graph:changed', {
+                nodeCount: graph.getAllNodes().length,
+                wallCount: graph.getAllWalls().length
+            });
         }
 
         // Clean up

@@ -128,23 +128,27 @@ export class WindowTool extends BaseTool {
         });
 
         // Subscribe to selection changes
-        this.eventManager.on('selection:changed', (event: { selected: ISelectableObject[] }) => {
-            const selectedWindows = event.selected.filter(obj => 
-                obj.type === SelectableObjectType.WINDOW
-            );
-            
+        this.eventManager.on('selection:changed', (event: { 
+            selectedNodes: string[],
+            selectedWalls: string[],
+            selectedDoors: string[],
+            selectedWindows: string[],
+            source: string 
+        }) => {
             // Update our internal state to match selection
-            if (selectedWindows.length === 1) {
-                const selectedWindow = selectedWindows[0] as WindowObject;
-                this.state.selectedWindow = selectedWindow;
-                selectedWindow.setSelected(true);
-                selectedWindow.setHighlighted(true);
-                
-                // Force visual update
-                const layers = this.canvasStore.getLayers();
-                if (layers?.mainLayer) {
-                    selectedWindow.render(layers.mainLayer);
-                    layers.mainLayer.batchDraw();
+            if (event.selectedWindows.length === 1) {
+                const selectedWindow = this.windowStore.getWindow(event.selectedWindows[0]);
+                if (selectedWindow) {
+                    this.state.selectedWindow = selectedWindow;
+                    selectedWindow.setSelected(true);
+                    selectedWindow.setHighlighted(true);
+                    
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        selectedWindow.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
                 }
             } else {
                 if (this.state.selectedWindow) {
@@ -350,7 +354,16 @@ export class WindowTool extends BaseTool {
             hitWindow.setHighlighted(true);
             this.state.selectedWindow = hitWindow;
 
-            // Always calculate dragOffset when selecting a window
+            // Emit selection event
+            this.eventManager.emit('selection:changed', {
+                selectedNodes: [],
+                selectedWalls: [],
+                selectedDoors: [],
+                selectedWindows: [hitWindow.id],
+                source: 'window-tool'
+            });
+
+            // Calculate drag offset
             const windowPos = hitWindow.getData().position;
             this.state.dragOffset = {
                 x: event.position.x - windowPos.x,
@@ -386,7 +399,7 @@ export class WindowTool extends BaseTool {
             return;
         }
 
-        // If we didn't hit a window, clear selection and continue with wall selection
+        // If we didn't hit a window, clear selection
         if (this.state.selectedWindow) {
             this.state.selectedWindow.setSelected(false);
             this.state.selectedWindow.setHighlighted(false);
@@ -396,6 +409,15 @@ export class WindowTool extends BaseTool {
                 this.state.selectedWindow.render(layers.mainLayer);
                 layers.mainLayer.batchDraw();
             }
+            
+            // Emit empty selection event
+            this.eventManager.emit('selection:changed', {
+                selectedNodes: [],
+                selectedWalls: [],
+                selectedDoors: [],
+                selectedWindows: [],
+                source: 'window-tool'
+            });
             
             this.state.selectedWindow = null;
             this.state.dragOffset = null;
