@@ -41,17 +41,17 @@ export class RoomObject extends BaseObject {
 
     private styles = {
         normal: {
-            fill: 'rgba(200, 200, 200, 0.2)',
+            fill: 'transparent',
             stroke: '#666666',
             strokeWidth: 1
         },
         selected: {
-            fill: 'rgba(33, 150, 243, 0.2)',
+            fill: 'transparent',
             stroke: '#2196f3',
             strokeWidth: 2
         },
         highlighted: {
-            fill: 'rgba(76, 175, 80, 0.2)',
+            fill: 'transparent',
             stroke: '#4caf50',
             strokeWidth: 2
         }
@@ -78,7 +78,7 @@ export class RoomObject extends BaseObject {
         this.graph = graph;
         this.roomWidth = width;
         this.roomHeight = height;
-        this.area = width * height / 100; // Convert to m² (assuming 100px = 1m)
+        this.area = (width * height) / 10000; // Convert to m² (1px = 1cm, so 100px = 1m)
         this.name = `Room ${id.slice(0, 4)}`;
     }
 

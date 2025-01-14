@@ -303,28 +303,48 @@ export class WallTool extends BaseTool {
         if (!event.position) return;
         this.logger.info('handleMouseMove: Mouse move 2');
         switch (this.state.mode) {
-            
             case WallToolMode.MOVING_NODE:
                 this.logger.info('Moving node mouse move');
                 if (this.state.activeNode && this.state.isDragging && this.state.dragOffset) {
-                    const targetPosition = {
+                    let targetPosition = {
                         x: event.position.x - this.state.dragOffset.x,
                         y: event.position.y - this.state.dragOffset.y
                     };
 
+                    // Get connected walls and find a reference node for angle constraints
+                    const connectedWalls = this.state.activeNode.getConnectedWalls()
+                        .map(id => this.canvasStore.getWallGraph().getWall(id))
+                        .filter((wall): wall is WallObject => wall !== undefined);
+
+                    // Find reference node from connected walls
+                    let referenceNode: Point | null = null;
+                    if (connectedWalls.length > 0) {
+                        const wall = connectedWalls[0];
+                        const otherNodeId = wall.getStartNodeId() === this.state.activeNode.id ? 
+                            wall.getEndNodeId() : wall.getStartNodeId();
+                        const otherNode = this.canvasStore.getWallGraph().getNode(otherNodeId);
+                        if (otherNode) {
+                            referenceNode = otherNode.position;
+                        }
+                    }
+
+                    // Apply modifier constraints
+                    targetPosition = this.applyModifierConstraints(targetPosition, referenceNode, event);
+
                     this.logger.info('Moving node:', {
                         nodeId: this.state.activeNode.id,
-                        newPosition: targetPosition
+                        newPosition: targetPosition,
+                        modifiers: {
+                            ctrl: (event.originalEvent as MouseEvent)?.ctrlKey,
+                            shift: (event.originalEvent as MouseEvent)?.shiftKey,
+                            alt: (event.originalEvent as MouseEvent)?.altKey
+                        }
                     });
 
                     // Update node position
                     this.state.activeNode.setPosition(targetPosition.x, targetPosition.y);
 
                     // Update connected walls
-                    const connectedWalls = this.state.activeNode.getConnectedWalls()
-                        .map(id => this.canvasStore.getWallGraph().getWall(id))
-                        .filter((wall): wall is WallObject => wall !== undefined);
-
                     connectedWalls.forEach(wall => {
                         if (wall.getStartNodeId() === this.state.activeNode!.id) {
                             wall.updateStartPoint(targetPosition);
@@ -367,42 +387,8 @@ export class WallTool extends BaseTool {
         const hitNode = this.findNodeAtPosition(event.position);
         let endPoint = hitNode ? hitNode.position : event.position;
 
-        // Apply grid snap if ALT is pressed
-        if (event.originalEvent?.evt.altKey) {
-            // First snap the end point to grid
-            endPoint = this.snapToGrid(endPoint);
-            // Then ensure the distance is also a multiple of grid size
-            endPoint = this.snapDistanceToGrid(this.state.startNode.position, endPoint);
-        }
-
-        // Apply angle constraints if modifier keys are pressed
-        if (event.originalEvent?.evt.ctrlKey || event.originalEvent?.evt.shiftKey) {
-            const start = this.state.startNode.position;
-            const angle = this.calculateAngle(start, endPoint);
-            const distance = this.calculateDistance(start, endPoint);
-
-            let snappedAngle;
-            if (event.originalEvent.evt.ctrlKey) {
-                // Snap to nearest 90 degrees
-                snappedAngle = Math.round(angle / this.RECT_ANGLE_SNAP) * this.RECT_ANGLE_SNAP;
-            } else if (event.originalEvent.evt.shiftKey) {
-                // Snap to nearest 15 degrees
-                snappedAngle = Math.round(angle / this.ANGLE_SNAP) * this.ANGLE_SNAP;
-            }
-
-            if (snappedAngle !== undefined) {
-                const radians = (snappedAngle * Math.PI) / 180;
-                endPoint = {
-                    x: start.x + distance * Math.cos(radians),
-                    y: start.y + distance * Math.sin(radians)
-                };
-                
-                // If ALT is also pressed, ensure the distance is a multiple of grid size
-                if (event.originalEvent.evt.altKey) {
-                    endPoint = this.snapDistanceToGrid(start, endPoint);
-                }
-            }
-        }
+        // Apply modifier constraints using start node as reference
+        endPoint = this.applyModifierConstraints(endPoint, this.state.startNode.position, event);
 
         // Update preview line
         this.state.previewLine.points([
@@ -765,5 +751,64 @@ export class WallTool extends BaseTool {
         this.state.isDragging = false;
         this.state.mode = WallToolMode.IDLE;
         this.cleanupPreviewLine();
+    }
+
+    private applyModifierConstraints(
+        position: Point,
+        referencePoint: Point | null,
+        event: CanvasEvent
+    ): Point {
+        let result = { ...position };
+
+        if (!referencePoint) return result;
+
+        // Get modifier keys from the original event
+        const mouseEvent = event.originalEvent?.evt as MouseEvent;
+        
+        this.logger.info('Applying modifier constraints:', {
+            position,
+            referencePoint,
+            modifiers: {
+                ctrl: mouseEvent?.ctrlKey,
+                shift: mouseEvent?.shiftKey,
+                alt: mouseEvent?.altKey
+            }
+        });
+        
+        // Apply angle constraints (CTRL or SHIFT)
+        if (mouseEvent?.ctrlKey || mouseEvent?.shiftKey) {
+            const angle = this.calculateAngle(referencePoint, result);
+            const distance = this.calculateDistance(referencePoint, result);
+
+            let snappedAngle;
+            if (mouseEvent.ctrlKey) {
+                // Snap to nearest 90 degrees
+                snappedAngle = Math.round(angle / this.RECT_ANGLE_SNAP) * this.RECT_ANGLE_SNAP;
+                this.logger.info('Snapping to 90 degrees:', { originalAngle: angle, snappedAngle });
+            } else if (mouseEvent.shiftKey) {
+                // Snap to nearest 15 degrees
+                snappedAngle = Math.round(angle / this.ANGLE_SNAP) * this.ANGLE_SNAP;
+                this.logger.info('Snapping to 15 degrees:', { originalAngle: angle, snappedAngle });
+            }
+
+            if (snappedAngle !== undefined) {
+                const radians = (snappedAngle * Math.PI) / 180;
+                result = {
+                    x: referencePoint.x + distance * Math.cos(radians),
+                    y: referencePoint.y + distance * Math.sin(radians)
+                };
+            }
+        }
+
+        // Apply grid snap (ALT)
+        if (mouseEvent?.altKey) {
+            // First snap the position to grid
+            result = this.snapToGrid(result);
+            // Then ensure the distance is also a multiple of grid size
+            result = this.snapDistanceToGrid(referencePoint, result);
+            this.logger.info('Snapping to grid:', { originalPosition: position, snappedPosition: result });
+        }
+
+        return result;
     }
 }
