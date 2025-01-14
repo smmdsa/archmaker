@@ -89,6 +89,14 @@ export class DoorObject extends BaseObject implements ISelectableObject {
             stroke: '#CD853F',
             strokeWidth: 4,
             fill: '#CD853F'
+        },
+        label: {
+            fontSize: 14,
+            fontFamily: 'Arial',
+            fill: '#000000',
+            padding: 2,
+            background: '#FFFFFF',
+            opacity: 0.8
         }
     };
 
@@ -229,9 +237,53 @@ export class DoorObject extends BaseObject implements ISelectableObject {
     }
 
     private updateLabel(): void {
-        if (this.doorLabel && this.data.properties.label) {
-            this.doorLabel.text(this.data.properties.label);
-            this.group?.getLayer()?.batchDraw();
+        if (!this.group) return;
+
+        // Remove existing label if it exists
+        if (this.doorLabel) {
+            this.doorLabel.destroy();
+            this.doorLabel = undefined;
+        }
+        if (this.labelBackground) {
+            this.labelBackground.destroy();
+            this.labelBackground = undefined;
+        }
+
+        // Create new label if we have a door number
+        if (this._doorNumber !== null) {
+            const labelText = `Door_${this._doorNumber}`;
+            
+            // Create text label
+            this.doorLabel = new Text({
+                text: labelText,
+                fontSize: this.styles.label.fontSize,
+                fontFamily: this.styles.label.fontFamily,
+                fill: this.styles.label.fill,
+                padding: this.styles.label.padding,
+                align: 'center'
+            });
+
+            // Position the label above the door
+            const labelX = -this.doorLabel.width() / 2;
+            const labelY = -30; // Position above the door
+
+            this.doorLabel.position({ x: labelX, y: labelY });
+
+            // Create background for label
+            this.labelBackground = new Rect({
+                x: labelX - this.styles.label.padding,
+                y: labelY - this.styles.label.padding,
+                width: this.doorLabel.width() + (this.styles.label.padding * 2),
+                height: this.doorLabel.height() + (this.styles.label.padding * 2),
+                fill: this.styles.label.background,
+                opacity: this.styles.label.opacity,
+                cornerRadius: 3
+            });
+
+            // Add background first, then text
+            this.group.add(this.labelBackground);
+            this.group.add(this.doorLabel);
+            this.group.getLayer()?.batchDraw();
         }
     }
 
@@ -714,5 +766,9 @@ export class DoorObject extends BaseObject implements ISelectableObject {
         }
 
         return door;
+    }
+
+    getDoorNumber(): number | null {
+        return this._doorNumber;
     }
 } 

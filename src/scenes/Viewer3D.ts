@@ -357,10 +357,10 @@ export class Viewer3D {
         // Enable shadow mapping
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
+        var cubeMapFile = '/cube-map-2.jpg';
         // Load skybox texture
         const textureLoader = new THREE.TextureLoader();
-        textureLoader.load('/cube_map_unfold.png', (texture) => {
+        textureLoader.load(cubeMapFile, (texture) => {
             // Create skybox geometry
             const geometry = new THREE.BoxGeometry(10000, 10000, 10000);
             

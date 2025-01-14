@@ -203,6 +203,16 @@ export class DoorTool extends BaseTool {
         } else {
             this.logger.warn('Door tool: No layers available during initialization');
         }
+
+        // Add keyboard event listener for flipping doors
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+            // Only handle if tool is active and we have a selected door
+            if (this.isActive() && this.state.selectedDoor && e.key.toLowerCase() === 'f') {
+                e.preventDefault();
+                e.stopPropagation();
+                this.flipSelectedDoor();
+            }
+        });
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {

@@ -5,6 +5,7 @@ import { DoorObject } from '../objects/DoorObject';
 export class DoorStore {
     private static instance: DoorStore | null = null;
     private doors: Map<string, DoorObject> = new Map();
+    private nextDoorNumber: number = 1;
 
     private constructor(
         private readonly eventManager: IEventManager,
@@ -19,6 +20,7 @@ export class DoorStore {
     }
 
     addDoor(door: DoorObject): void {
+        door.setDoorNumber(this.nextDoorNumber++);
         this.doors.set(door.id, door);
         this.eventManager.emit('door:added', { door });
         this.eventManager.emit('door:changed', {});
@@ -31,7 +33,18 @@ export class DoorStore {
             this.doors.delete(id);
             this.eventManager.emit('door:removed', { doorId: id });
             this.eventManager.emit('door:changed', {});
+            this.reorderDoorNumbers();
         }
+    }
+
+    private reorderDoorNumbers(): void {
+        const sortedDoors = Array.from(this.doors.values())
+            .sort((a, b) => (a.getDoorNumber() || 0) - (b.getDoorNumber() || 0));
+        
+        this.nextDoorNumber = 1;
+        sortedDoors.forEach(door => {
+            door.setDoorNumber(this.nextDoorNumber++);
+        });
     }
 
     getDoor(id: string): DoorObject | undefined {
@@ -49,6 +62,7 @@ export class DoorStore {
     clear(): void {
         this.doors.forEach(door => door.destroy());
         this.doors.clear();
+        this.nextDoorNumber = 1;
         this.eventManager.emit('door:changed', {});
     }
 } 
