@@ -275,31 +275,103 @@ input[type="color"] {
     transition: all 0.3s ease;
 }
 
+#viewer-3d canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
 #viewer-3d.expanded {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 80vw;
-    height: 80vh;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    transform: none;
+    border-radius: 0;
     z-index: 1000;
 }
 
 #viewer-3d .expand-button {
     position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 24px;
-    height: 24px;
-    background-color: rgba(255, 255, 255, 0.8);
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    background-color: rgba(255, 255, 255, 0.9);
     border: 1px solid #ddd;
     border-radius: 4px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 18px;
+    z-index: 1001;
+    transition: all 0.2s ease;
 }
 
 #viewer-3d .expand-button:hover {
     background-color: #fff;
+    transform: scale(1.05);
+}
+
+#viewer-3d .expand-button:active {
+    transform: scale(0.95);
+}
+
+#viewer-3d .camera-controls {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    display: none;
+    z-index: 1001;
+    min-width: 200px;
+}
+
+#viewer-3d.expanded .camera-controls {
+    display: block;
+}
+
+#viewer-3d .camera-controls h3 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    color: #333;
+}
+
+#viewer-3d .control-group {
+    margin-bottom: 8px;
+}
+
+#viewer-3d .control-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+#viewer-3d .control-label {
+    flex: 1;
+    font-size: 12px;
+    color: #666;
+}
+
+#viewer-3d .control-value {
+    flex: 2;
+}
+
+#viewer-3d .control-value input[type="range"] {
+    width: 100%;
+}
+
+#viewer-3d .control-value input[type="number"] {
+    width: 60px;
+    padding: 2px 4px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 12px;
 }
