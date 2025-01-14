@@ -96,66 +96,130 @@ export class RemoveTool extends BaseTool {
         const graph = this.canvasStore.getWallGraph();
         const selectedNodeIds = this.selectionStore.getSelectedNodes();
         const selectedWallIds = this.selectionStore.getSelectedWalls();
+        const selectedDoors = this.selectionStore.getSelectedDoors();
+        const selectedWindows = this.selectionStore.getSelectedWindows();
 
-        if (selectedNodeIds.size === 0 && selectedWallIds.size === 0) {
+        if (selectedNodeIds.size === 0 && selectedWallIds.size === 0 && 
+            selectedDoors.size === 0 && selectedWindows.size === 0) {
+            this.logger.info('Remove tool: No objects selected');
             return;
         }
 
-        this.logger.info('Removing selected objects', {
-            nodes: Array.from(selectedNodeIds),
-            walls: Array.from(selectedWallIds)
-        });
+        try {
+            // First, remove doors and windows as they depend on walls
+            selectedDoors.forEach(doorId => {
+                const doorStore = this.canvasStore.getDoorStore();
+                if (doorStore) {
+                    doorStore.removeDoor(doorId);
+                    this.eventManager.emit('object:deleted', { objectId: doorId, type: 'door' });
+                    this.logger.info('Remove tool: Removed door', { doorId });
+                }
+            });
 
-        // First remove selected walls
-        for (const wallId of selectedWallIds) {
-            const wall = graph.getWall(wallId);
-            if (wall) {
-                // Get connected nodes before removing the wall
-                const wallData = wall.getData();
-                const startNode = graph.getNode(wallData.startNodeId);
-                const endNode = graph.getNode(wallData.endNodeId);
+            selectedWindows.forEach(windowId => {
+                const windowStore = this.canvasStore.getWindowStore();
+                if (windowStore) {
+                    windowStore.removeWindow(windowId);
+                    this.eventManager.emit('object:deleted', { objectId: windowId, type: 'window' });
+                    this.logger.info('Remove tool: Removed window', { windowId });
+                }
+            });
 
-                // Remove wall from graph
-                graph.removeWall(wallId);
+            // Then remove walls, but first collect all affected nodes
+            const affectedNodes = new Set<string>();
+            selectedWallIds.forEach(wallId => {
+                const wall = graph.getWall(wallId);
+                if (wall) {
+                    const data = wall.getData();
+                    affectedNodes.add(data.startNodeId);
+                    affectedNodes.add(data.endNodeId);
+                }
+            });
 
-                // Update connected walls for affected nodes
-                if (startNode) this.updateConnectedWalls(startNode);
-                if (endNode) this.updateConnectedWalls(endNode);
-            }
-        }
+            // Remove the selected walls
+            selectedWallIds.forEach(wallId => {
+                const wall = graph.getWall(wallId);
+                if (wall) {
+                    graph.removeWall(wallId);
+                    this.eventManager.emit('object:deleted', { objectId: wallId, type: 'wall' });
+                    this.logger.info('Remove tool: Removed wall', { wallId });
+                }
+            });
 
-        // Then remove selected nodes
-        for (const nodeId of selectedNodeIds) {
-            const node = graph.getNode(nodeId);
-            if (node) {
-                // Get connected walls before removing the node
-                const connectedWalls = node.getConnectedWalls();
-                
-                // Remove node and its connected walls
-                graph.removeNode(nodeId);
-
-                // Update any remaining connected walls
-                connectedWalls.forEach(wallId => {
-                    const wall = graph.getWall(wallId);
-                    if (wall) {
-                        const wallData = wall.getData();
-                        const otherNode = wallData.startNodeId === nodeId 
-                            ? graph.getNode(wallData.endNodeId)
-                            : graph.getNode(wallData.startNodeId);
+            // Handle node removal and wall reconnection
+            selectedNodeIds.forEach(nodeId => {
+                const node = graph.getNode(nodeId);
+                if (node) {
+                    const connectedWalls = node.getConnectedWalls();
+                    
+                    if (connectedWalls.length === 2) {
+                        // Node is in the middle of two walls - merge them
+                        const [wall1Id, wall2Id] = connectedWalls;
+                        const wall1 = graph.getWall(wall1Id);
+                        const wall2 = graph.getWall(wall2Id);
                         
-                        if (otherNode) {
-                            this.updateConnectedWalls(otherNode);
+                        if (wall1 && wall2) {
+                            const wall1Data = wall1.getData();
+                            const wall2Data = wall2.getData();
+                            
+                            // Determine which nodes to connect
+                            const otherNode1Id = wall1Data.startNodeId === nodeId ? wall1Data.endNodeId : wall1Data.startNodeId;
+                            const otherNode2Id = wall2Data.startNodeId === nodeId ? wall2Data.endNodeId : wall2Data.startNodeId;
+                            
+                            const otherNode1 = graph.getNode(otherNode1Id);
+                            const otherNode2 = graph.getNode(otherNode2Id);
+                            
+                            if (otherNode1 && otherNode2) {
+                                // Create new wall connecting the remaining nodes
+                                const newWall = graph.createWall(otherNode1, otherNode2);
+                                
+                                // Remove old walls
+                                graph.removeWall(wall1Id);
+                                graph.removeWall(wall2Id);
+                                
+                                this.eventManager.emit('object:deleted', { objectId: wall1Id, type: 'wall' });
+                                this.eventManager.emit('object:deleted', { objectId: wall2Id, type: 'wall' });
+                                this.logger.info('Remove tool: Merged walls', { 
+                                    removedWalls: [wall1Id, wall2Id],
+                                    newWallId: newWall.id 
+                                });
+                            }
                         }
+                    } else if (connectedWalls.length === 1) {
+                        // Node is at the end of a single wall - remove the wall
+                        const wallId = connectedWalls[0];
+                        graph.removeWall(wallId);
+                        this.eventManager.emit('object:deleted', { objectId: wallId, type: 'wall' });
+                        this.logger.info('Remove tool: Removed orphaned wall', { wallId });
                     }
-                });
+                    
+                    // Finally remove the node
+                    graph.removeNode(nodeId);
+                    this.eventManager.emit('object:deleted', { objectId: nodeId, type: 'node' });
+                    this.logger.info('Remove tool: Removed node', { nodeId });
+                }
+            });
+
+            // Clear selection
+            this.selectionStore.clearSelection();
+
+            // Update canvas and emit graph changed event
+            this.eventManager.emit('graph:changed', {
+                nodeCount: graph.getAllNodes().length,
+                wallCount: graph.getAllWalls().length,
+                doorCount: this.canvasStore.getDoorStore()?.getAllDoors().length || 0,
+                windowCount: this.canvasStore.getWindowStore()?.getAllWindows().length || 0
+            });
+
+            // Force canvas redraw
+            const layers = this.canvasStore.getLayers();
+            if (layers?.mainLayer) {
+                layers.mainLayer.batchDraw();
             }
+
+        } catch (error) {
+            this.logger.error('Remove tool: Failed to remove objects', error instanceof Error ? error : new Error('Unknown error'));
         }
-
-        // Clear selection
-        this.selectionStore.clearSelection();
-
-        // Trigger canvas update
-        this.updateCanvas();
     }
 
     private updateConnectedWalls(node: NodeObject): void {
