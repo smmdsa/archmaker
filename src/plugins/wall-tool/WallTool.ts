@@ -598,93 +598,42 @@ export class WallTool extends BaseTool {
         if (!this.state.activeWall) return;
 
         const graph = this.canvasStore.getWallGraph();
-        
+        const originalWallId = this.state.activeWall.id;
+        const wallData = this.state.activeWall.getData();
+
         // Create new node at split point
         const newNode = graph.createNode(position);
 
-        // Get the original wall's data
-        const wallData = this.state.activeWall.getData();
-        
-        // Create two new walls
+        // Create two new walls connecting the new node to the original wall's nodes
         const wall1 = graph.createWall(wallData.startNodeId, newNode.id);
         const wall2 = graph.createWall(newNode.id, wallData.endNodeId);
 
         if (wall1 && wall2) {
-            // Emit wall:split event before handling doors
-            this.eventManager.emit('wall:split', {
-                originalWallId: this.state.activeWall.id,
-                newWalls: [
-                    { id: wall1.id, wall: wall1 },
-                    { id: wall2.id, wall: wall2 }
-                ]
-            });
-
-            // Handle doors on the original wall before removing it
-            const doorStore = this.canvasStore.getDoorStore();
-            const doorsOnWall = doorStore.getAllDoors()
-                .filter(door => door.getData().wallId === this.state.activeWall!.id);
-
-            // For each door, determine which new wall it should be attached to
-            doorsOnWall.forEach(door => {
-                const doorData = door.getData();
-                const doorPos = doorData.position;
-
-                // Calculate relative position of door on original wall
-                const wallStartPoint = wallData.startPoint;
-                const wallEndPoint = wallData.endPoint;
-                const wallLength = this.getDistance(wallStartPoint, wallEndPoint);
-                const doorToStartDist = this.getDistance(doorPos, wallStartPoint);
-                const relativePosition = doorToStartDist / wallLength;
-
-                // Determine which new wall the door belongs to
-                const newWall = relativePosition <= 0.5 ? wall1 : wall2;
-                const newWallData = newWall.getData();
-                const newWallLength = this.getDistance(newWallData.startPoint, newWallData.endPoint);
-                const newDoorDist = relativePosition <= 0.5 ? 
-                    (doorToStartDist / wallLength) * newWallLength :
-                    ((doorToStartDist - wallLength/2) / (wallLength/2)) * newWallLength;
-
-                // Calculate new door position
-                const dx = newWallData.endPoint.x - newWallData.startPoint.x;
-                const dy = newWallData.endPoint.y - newWallData.startPoint.y;
-                const angle = Math.atan2(dy, dx);
-                const newPosition: Point = {
-                    x: newWallData.startPoint.x + Math.cos(angle) * newDoorDist,
-                    y: newWallData.startPoint.y + Math.sin(angle) * newDoorDist
-                };
-
-                // Update door with new wall reference and position
-                door.updatePosition(newPosition);
-                door.updateWallReference(newWall);
-
-                this.logger.info('Door reassigned after wall split', {
-                    doorId: door.id,
-                    originalWallId: this.state.activeWall!.id,
-                    newWallId: newWall.id,
-                    newPosition
-                });
-            });
-
             // Remove the original wall
-            graph.removeWall(this.state.activeWall.id);
+            graph.removeWall(originalWallId);
 
-            this.logger.info('Wall split', {
-                originalWallId: this.state.activeWall.id,
-                newNodeId: newNode.id,
-                wall1Id: wall1.id,
-                wall2Id: wall2.id,
-                affectedDoors: doorsOnWall.map(d => d.id)
+            // Reset tool state and selection
+            this.state.activeWall = null;
+            this.state.mode = WallToolMode.IDLE;
+            this.selectionStore.clearSelection();
+
+            // Emit graph changed event to ensure proper state update
+            this.eventManager.emit('graph:changed', {
+                nodeCount: graph.getAllNodes().length,
+                wallCount: graph.getAllWalls().length
             });
-        }
 
-        // Reset state
-        this.state.activeWall = null;
-        this.state.mode = WallToolMode.IDLE;
+            // Force visual update
+            const layers = this.canvasStore.getLayers();
+            if (layers?.mainLayer) {
+                layers.mainLayer.batchDraw();
+            }
 
-        // Trigger redraw
-        const layers = this.canvasStore.getLayers();
-        if (layers) {
-            layers.mainLayer.batchDraw();
+            this.logger.info('Wall split completed:', {
+                originalWallId,
+                newNodeId: newNode.id,
+                newWallIds: [wall1.id, wall2.id]
+            });
         }
     }
 

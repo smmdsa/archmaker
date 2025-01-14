@@ -119,12 +119,27 @@ export class WallObject extends BaseObject {
 
             // Add double-click handler to the wall line
             this.wallLine.on('dblclick', (event) => {
-                // Get the position of the double-click relative to the stage
+                // Get the stage
                 const stage = event.target.getStage();
-                const position = stage?.getPointerPosition();
-                if (!position) return;
+                if (!stage) return;
 
-                // Emit wall:dblclick event
+                // Get the pointer position in stage coordinates
+                const stagePoint = stage.getPointerPosition();
+                if (!stagePoint) return;
+
+                // Transform the point from stage coordinates to relative coordinates
+                const transform = {
+                    x: stage.x(),
+                    y: stage.y(),
+                    scale: stage.scaleX()
+                };
+
+                const position = {
+                    x: (stagePoint.x - transform.x) / transform.scale,
+                    y: (stagePoint.y - transform.y) / transform.scale
+                };
+
+                // Emit wall:dblclick event with transformed position
                 this.eventManager.emit('wall:dblclick', {
                     wallId: this.id,
                     position: position
