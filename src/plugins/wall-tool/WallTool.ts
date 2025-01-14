@@ -27,6 +27,10 @@ interface WallToolState {
     previewLine: Line | null;
     snapThreshold: number;
     isDragging: boolean;
+    selectedWall: WallObject | null;
+    selectedNode: NodeObject | null;
+    dragStartPosition: Point | null;
+    dragOffset: Point | null;
 }
 
 const toolManifest = {
@@ -62,7 +66,11 @@ export class WallTool extends BaseTool {
         activeWall: null,
         previewLine: null,
         snapThreshold: 10,
-        isDragging: false
+        isDragging: false,
+        selectedWall: null,
+        selectedNode: null,
+        dragStartPosition: null,
+        dragOffset: null
     };
 
     // Add angle constraint properties
@@ -78,6 +86,84 @@ export class WallTool extends BaseTool {
         super(eventManager, logger, 'wall-tool', toolManifest);
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
         this.selectionStore = SelectionStore.getInstance(eventManager, logger);
+
+        // Subscribe to wall removal events
+        this.eventManager.on('wall:removed', (event: { wallId: string }) => {
+            // If the removed wall was selected, reset the tool state
+            if (this.state.selectedWall?.id === event.wallId) {
+                this.resetToolState();
+            }
+        });
+
+        // Subscribe to double-click events
+        this.eventManager.on('canvas:dblclick', async (event: MouseEvent) => {
+            if (!this.isActive()) return;
+
+            const position = {
+                x: event.offsetX,
+                y: event.offsetY
+            };
+
+            this.logger.info('Double click detected at position:', position);
+
+            // Check if we hit a wall
+            const hitWall = this.findWallAtPosition(position);
+            if (hitWall) {
+                this.logger.info('Wall hit on double click:', hitWall.id);
+                this.state.activeWall = hitWall;
+                this.state.mode = WallToolMode.SPLITTING_WALL;
+                await this.handleWallSplit(position);
+            }
+        });
+
+        // Subscribe to selection changes
+        this.eventManager.on('selection:changed', (event: { 
+            selectedNodes: string[],
+            selectedWalls: string[],
+            selectedDoors: string[],
+            selectedWindows: string[],
+            source: string 
+        }) => {
+            // Skip if we're the source of the event to avoid state race conditions
+            if (event.source === 'wall-tool') {
+                return;
+            }
+
+            const graph = this.canvasStore.getWallGraph();
+            
+            // Update our internal state to match selection
+            if (event.selectedWalls.length === 1) {
+                const selectedWall = graph.getWall(event.selectedWalls[0]);
+                if (selectedWall) {
+                    this.state.selectedWall = selectedWall;
+                    selectedWall.setSelected(true);
+                    selectedWall.setHighlighted(true);
+                    
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        selectedWall.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                } else {
+                    // If the wall doesn't exist anymore, reset state
+                    this.resetToolState();
+                }
+            } else {
+                if (this.state.selectedWall) {
+                    this.state.selectedWall.setSelected(false);
+                    this.state.selectedWall.setHighlighted(false);
+                    
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        this.state.selectedWall.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                }
+                this.resetToolState();
+            }
+        });
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {
@@ -101,29 +187,107 @@ export class WallTool extends BaseTool {
 
         const graph = this.canvasStore.getWallGraph();
         const hitNode = this.findNodeAtPosition(event.position);
-
+        this.logger.info('handleMouseDown: Mouse down', this.state.mode);
         if (hitNode) {
-            if (this.state.mode === WallToolMode.IDLE) {
-                // Start node movement
-                this.state.activeNode = hitNode;
-                this.state.mode = WallToolMode.MOVING_NODE;
-                this.state.isDragging = true;
-            } else {
-                // Start drawing from existing node
-                this.state.startNode = hitNode;
-                this.state.mode = WallToolMode.DRAWING;
-                this.state.isDrawing = true;
-                this.initPreviewLine(hitNode.position);
+            this.logger.info('handleMouseDown: Node hit 1');
+            // Always select the node when hit and prepare for potential movement
+            this.state.selectedNode = hitNode;
+            this.state.activeNode = hitNode;
+            this.state.mode = WallToolMode.MOVING_NODE;
+            this.state.isDragging = true;
+            this.state.dragStartPosition = { ...event.position };
+            this.state.dragOffset = {
+                x: event.position.x - hitNode.position.x,
+                y: event.position.y - hitNode.position.y
+            };
+
+            hitNode.setSelected(true);
+            hitNode.setHighlighted(true);
+            this.logger.info('handleMouseDown: Node hit 2', this.state.mode);
+            // Emit selection event
+            this.eventManager.emit('selection:changed', {
+                selectedNodes: [hitNode.id],
+                selectedWalls: [],
+                selectedDoors: [],
+                selectedWindows: [],
+                source: 'wall-tool'
+            });
+            this.logger.info('handleMouseDown: Node hit 3', this.state.mode);
+            // Force visual update
+            const layers = this.canvasStore.getLayers();
+            if (layers?.mainLayer) {
+                hitNode.render(layers.mainLayer);
+                layers.mainLayer.batchDraw();
             }
+
+            this.logger.info('handleMouseDown: Node selected and prepared for movement:', {
+                nodeId: hitNode.id,
+                position: hitNode.position,
+                dragOffset: this.state.dragOffset
+            });
+            this.logger.info('handleMouseDown: Node hit 4', this.state.mode);
         } else {
+            this.logger.info('handleMouseDown: Node hit 5', this.state.mode);
             // Check if we hit a wall
             const hitWall = this.findWallAtPosition(event.position);
-            if (hitWall && this.state.mode === WallToolMode.IDLE) {
-                // Split wall mode
-                this.state.activeWall = hitWall;
-                this.state.mode = WallToolMode.SPLITTING_WALL;
-                await this.handleWallSplit(event.position);
+            if (hitWall) {
+                if (this.state.mode === WallToolMode.IDLE) {
+                    // Select the wall
+                    this.state.selectedWall = hitWall;
+                    hitWall.setSelected(true);
+                    hitWall.setHighlighted(true);
+
+                    // Emit selection event
+                    this.eventManager.emit('selection:changed', {
+                        selectedNodes: [],
+                        selectedWalls: [hitWall.id],
+                        selectedDoors: [],
+                        selectedWindows: [],
+                        source: 'wall-tool'
+                    });
+
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        hitWall.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                }
             } else if (this.state.mode === WallToolMode.IDLE) {
+                // Clear selection when clicking empty space
+                if (this.state.selectedWall) {
+                    this.state.selectedWall.setSelected(false);
+                    this.state.selectedWall.setHighlighted(false);
+                    
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        this.state.selectedWall.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                    
+                    // Emit empty selection event
+                    this.eventManager.emit('selection:changed', {
+                        selectedNodes: [],
+                        selectedWalls: [],
+                        selectedDoors: [],
+                        selectedWindows: [],
+                        source: 'wall-tool'
+                    });
+                }
+                
+                if (this.state.selectedNode) {
+                    this.state.selectedNode.setSelected(false);
+                    this.state.selectedNode.setHighlighted(false);
+                    
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        this.state.selectedNode.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                }
+                
                 // Create new node and start drawing
                 this.state.startNode = graph.createNode(event.position);
                 this.state.mode = WallToolMode.DRAWING;
@@ -131,17 +295,68 @@ export class WallTool extends BaseTool {
                 this.initPreviewLine(this.state.startNode.position);
             }
         }
+        this.logger.info('handleMouseDown: Mouse down 6', this.state.mode);
     }
 
     private async handleMouseMove(event: CanvasEvent): Promise<void> {
+        this.logger.info('handleMouseMove: Mouse move', this.state.mode);
         if (!event.position) return;
-
+        this.logger.info('handleMouseMove: Mouse move 2');
         switch (this.state.mode) {
-            case WallToolMode.DRAWING:
-                await this.handleDrawingMouseMove(event);
-                break;
+            
             case WallToolMode.MOVING_NODE:
-                await this.handleNodeMoveMouseMove(event);
+                this.logger.info('Moving node mouse move');
+                if (this.state.activeNode && this.state.isDragging && this.state.dragOffset) {
+                    const targetPosition = {
+                        x: event.position.x - this.state.dragOffset.x,
+                        y: event.position.y - this.state.dragOffset.y
+                    };
+
+                    this.logger.info('Moving node:', {
+                        nodeId: this.state.activeNode.id,
+                        newPosition: targetPosition
+                    });
+
+                    // Update node position
+                    this.state.activeNode.setPosition(targetPosition.x, targetPosition.y);
+
+                    // Update connected walls
+                    const connectedWalls = this.state.activeNode.getConnectedWalls()
+                        .map(id => this.canvasStore.getWallGraph().getWall(id))
+                        .filter((wall): wall is WallObject => wall !== undefined);
+
+                    connectedWalls.forEach(wall => {
+                        if (wall.getStartNodeId() === this.state.activeNode!.id) {
+                            wall.updateStartPoint(targetPosition);
+                        } else if (wall.getEndNodeId() === this.state.activeNode!.id) {
+                            wall.updateEndPoint(targetPosition);
+                        }
+
+                        // Emit wall:moved event
+                        this.eventManager.emit('wall:moved', {
+                            wallId: wall.id,
+                            wall: wall,
+                            newStartPoint: wall.getData().startPoint,
+                            newEndPoint: wall.getData().endPoint
+                        });
+                    });
+
+                    // Force visual update
+                    const layers = this.canvasStore.getLayers();
+                    if (layers?.mainLayer) {
+                        // Update walls
+                        connectedWalls.forEach(wall => {
+                            wall.render(layers.mainLayer);
+                        });
+                        // Update node
+                        this.state.activeNode.render(layers.mainLayer);
+                        layers.mainLayer.batchDraw();
+                    }
+                }
+                break;
+            case WallToolMode.DRAWING:
+                this.logger.info('Drawing mouse move');
+                await this.handleDrawingMouseMove(event);
                 break;
         }
     }
@@ -216,121 +431,6 @@ export class WallTool extends BaseTool {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    private async handleNodeMoveMouseMove(event: CanvasEvent): Promise<void> {
-        if (!event.position || !this.state.isDragging || !this.state.activeNode) return;
-
-        const graph = this.canvasStore.getWallGraph();
-        const nearestNode = this.findNearestNode(event.position, this.state.activeNode);
-        let targetPosition = nearestNode && this.isWithinSnapThreshold(event.position, nearestNode.position) 
-            ? nearestNode.position 
-            : event.position;
-
-        // Get connected walls to determine reference points for angle constraints
-        const connectedWalls = this.state.activeNode.getConnectedWalls()
-            .map(id => graph.getWall(id))
-            .filter((wall): wall is WallObject => wall !== undefined);
-
-        // Apply grid snap if ALT is pressed
-        if (event.originalEvent?.evt.altKey && connectedWalls.length > 0) {
-            // First snap the position to grid
-            targetPosition = this.snapToGrid(targetPosition);
-            
-            // Then ensure the distance to connected nodes is a multiple of grid size
-            for (const wall of connectedWalls) {
-                const otherNodeId = wall.getStartNodeId() === this.state.activeNode.id ? 
-                    wall.getEndNodeId() : wall.getStartNodeId();
-                const otherNode = graph.getNode(otherNodeId);
-                if (otherNode) {
-                    targetPosition = this.snapDistanceToGrid(otherNode.position, targetPosition);
-                    break; // Only use the first connected wall as reference
-                }
-            }
-        }
-
-        // Apply angle constraints if modifier keys are pressed
-        if ((event.originalEvent?.evt.ctrlKey || event.originalEvent?.evt.shiftKey) && connectedWalls.length > 0) {
-            // Find the first connected node to use as reference point
-            let referenceNode: Point | null = null;
-            
-            // Try to find a reference node from connected walls
-            for (const wall of connectedWalls) {
-                const startNodeId = wall.getStartNodeId();
-                const endNodeId = wall.getEndNodeId();
-                if (startNodeId !== this.state.activeNode.id) {
-                    const node = graph.getNode(startNodeId);
-                    if (node) {
-                        referenceNode = node.position;
-                        break;
-                    }
-                } else if (endNodeId !== this.state.activeNode.id) {
-                    const node = graph.getNode(endNodeId);
-                    if (node) {
-                        referenceNode = node.position;
-                        break;
-                    }
-                }
-            }
-
-            if (referenceNode) {
-                const angle = this.calculateAngle(referenceNode, targetPosition);
-                const distance = this.calculateDistance(referenceNode, targetPosition);
-
-                let snappedAngle;
-                if (event.originalEvent.evt.ctrlKey) {
-                    // Snap to nearest 90 degrees
-                    snappedAngle = Math.round(angle / this.RECT_ANGLE_SNAP) * this.RECT_ANGLE_SNAP;
-                } else if (event.originalEvent.evt.shiftKey) {
-                    // Snap to nearest 15 degrees
-                    snappedAngle = Math.round(angle / this.ANGLE_SNAP) * this.ANGLE_SNAP;
-                }
-
-                if (snappedAngle !== undefined) {
-                    const radians = (snappedAngle * Math.PI) / 180;
-                    targetPosition = {
-                        x: referenceNode.x + distance * Math.cos(radians),
-                        y: referenceNode.y + distance * Math.sin(radians)
-                    };
-                    
-                    // If ALT is also pressed, ensure the distance is a multiple of grid size
-                    if (event.originalEvent.evt.altKey) {
-                        targetPosition = this.snapDistanceToGrid(referenceNode, targetPosition);
-                    }
-                }
-            }
-        }
-
-        // Update node position
-        this.state.activeNode.setPosition(targetPosition.x, targetPosition.y);
-
-        // Update wall geometry based on node movement
-        connectedWalls.forEach(wall => {
-            if (wall.getStartNodeId() === this.state.activeNode!.id) {
-                wall.updateStartPoint(targetPosition);
-            } else if (wall.getEndNodeId() === this.state.activeNode!.id) {
-                wall.updateEndPoint(targetPosition);
-            }
-
-            // Emit wall:moved event
-            this.eventManager.emit('wall:moved', {
-                wallId: wall.id,
-                wall: wall,
-                newStartPoint: wall.getData().startPoint,
-                newEndPoint: wall.getData().endPoint
-            });
-        });
-
-        // Force walls to re-render
-        const layers = this.canvasStore.getLayers();
-        if (layers) {
-            connectedWalls.forEach(wall => {
-                wall.render(layers.mainLayer);
-            });
-            // Also re-render the active node to ensure it stays on top
-            this.state.activeNode.render(layers.mainLayer);
-            layers.mainLayer.batchDraw();
-        }
-    }
-
     private async handleMouseUp(event: CanvasEvent): Promise<void> {
         if (!event.position) return;
 
@@ -339,13 +439,37 @@ export class WallTool extends BaseTool {
                 await this.handleDrawingMouseUp(event);
                 break;
             case WallToolMode.MOVING_NODE:
-                await this.handleNodeMoveMouseUp(event);
+                if (this.state.activeNode) {
+                    const graph = this.canvasStore.getWallGraph();
+                    const nearestNode = this.findNodeAtPosition(event.position);
+
+                    if (nearestNode && nearestNode !== this.state.activeNode) {
+                        // Merge nodes if we're dropping onto another node
+                        await this.mergeNodes(this.state.activeNode, nearestNode);
+                        this.state.selectedNode = nearestNode;
+                        nearestNode.setSelected(true);
+                        nearestNode.setHighlighted(true);
+                    } else {
+                        // Keep the moved node selected
+                        this.state.selectedNode = this.state.activeNode;
+                        this.state.activeNode.setSelected(true);
+                        this.state.activeNode.setHighlighted(true);
+                    }
+
+                    this.logger.info('Node movement completed:', {
+                        nodeId: this.state.selectedNode.id,
+                        finalPosition: this.state.selectedNode.position
+                    });
+                }
                 break;
         }
 
-        // Reset state
-        this.state.mode = WallToolMode.IDLE;
+        // Reset dragging state but maintain selection
         this.state.isDragging = false;
+        this.state.activeNode = null;
+        this.state.dragStartPosition = null;
+        this.state.dragOffset = null;
+        this.state.mode = WallToolMode.IDLE;
     }
 
     private async handleDrawingMouseUp(event: CanvasEvent): Promise<void> {
@@ -379,20 +503,6 @@ export class WallTool extends BaseTool {
         this.cleanupPreviewLine();
         this.state.isDrawing = false;
         this.state.startNode = null;
-    }
-
-    private async handleNodeMoveMouseUp(event: CanvasEvent): Promise<void> {
-        if (!event.position || !this.state.activeNode) return;
-
-        const graph = this.canvasStore.getWallGraph();
-        const nearestNode = this.findNearestNode(event.position, this.state.activeNode);
-
-        if (nearestNode && this.isWithinSnapThreshold(event.position, nearestNode.position)) {
-            // Merge nodes
-            await this.mergeNodes(this.state.activeNode, nearestNode);
-        }
-
-        this.state.activeNode = null;
     }
 
     private async mergeNodes(sourceNode: NodeObject, targetNode: NodeObject): Promise<void> {
@@ -636,8 +746,24 @@ export class WallTool extends BaseTool {
             activeWall: null,
             previewLine: null,
             snapThreshold: 10,
-            isDragging: false
+            isDragging: false,
+            selectedWall: null,
+            selectedNode: null,
+            dragStartPosition: null,
+            dragOffset: null
         };
         await super.deactivate();
+    }
+
+    private resetToolState(): void {
+        this.state.selectedWall = null;
+        this.state.selectedNode = null;
+        this.state.activeWall = null;
+        this.state.activeNode = null;
+        this.state.startNode = null;
+        this.state.isDrawing = false;
+        this.state.isDragging = false;
+        this.state.mode = WallToolMode.IDLE;
+        this.cleanupPreviewLine();
     }
 }
