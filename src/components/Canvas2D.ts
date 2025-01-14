@@ -1,500 +1,362 @@
 import Konva from 'konva';
-import { ToolType } from './Toolbar';
-import { ProjectStore, Point, Wall } from '../store/ProjectStore';
-import { AddWallCommand } from '../store/commands/WallCommands';
+import { IEventManager } from '../core/interfaces/IEventManager';
+import { ILogger } from '../core/interfaces/ILogger';
+import { Point } from '../core/types/geometry';
+import { CanvasStore } from '../store/CanvasStore';
 
 export class Canvas2D {
     private stage: Konva.Stage;
-    private layer: Konva.Layer;
+    private mainLayer: Konva.Layer;
+    private tempLayer: Konva.Layer;
     private gridLayer: Konva.Layer;
-    private tempLine: Konva.Line | null = null;
-    private isDrawing: boolean = false;
-    private gridSize: number = 50;
-    private currentTool: ToolType = ToolType.SELECT;
-    private selectedShape: Konva.Shape | null = null;
-    private container: HTMLElement;
-    private readonly SNAP_THRESHOLD = 20; // Distancia máxima para el snap en píxeles
+    private readonly canvasStore: CanvasStore;
+    
+    // Add zoom control properties
+    private minZoom = 0.1;
+    private maxZoom = 5;
+    private zoomFactor = 1.1;
+    private currentZoom = 1;
+    
+    // Add panning control
+    private isPanning = false;
+    private lastPointerPosition: Point | null = null;
 
-    constructor(containerId: string, private store: ProjectStore) {
+    constructor(
+        containerId: string,
+        private readonly eventManager: IEventManager,
+        private readonly logger: ILogger
+    ) {
+        this.logger.info('Initializing Canvas2D component...');
+        
         const container = document.getElementById(containerId);
-        if (!container) throw new Error('Container not found');
-        this.container = container;
+        if (!container) {
+            throw new Error(`Canvas container not found: ${containerId}`);
+        }
 
-        // Initialize Konva Stage with container dimensions
+        // Initialize Konva stage
         this.stage = new Konva.Stage({
             container: containerId,
             width: container.clientWidth,
             height: container.clientHeight
         });
 
-        // Create grid layer
-        this.gridLayer = new Konva.Layer();
-        
-        // Create main layer for walls and objects
-        this.layer = new Konva.Layer();
+        // Create layers
+        this.gridLayer = new Konva.Layer({ id: 'grid-layer' });
+        this.mainLayer = new Konva.Layer({ id: 'main-layer' });
+        this.tempLayer = new Konva.Layer({ id: 'temp-layer' });
 
         // Add layers to stage
         this.stage.add(this.gridLayer);
-        this.stage.add(this.layer);
+        this.stage.add(this.mainLayer);
+        this.stage.add(this.tempLayer);
 
-        // Set initial scale and position
-        const initialScale = 1;
-        this.gridLayer.scale({ x: initialScale, y: initialScale });
-        this.layer.scale({ x: initialScale, y: initialScale });
+        // Initialize CanvasStore
+        this.canvasStore = CanvasStore.getInstance(eventManager, logger);
+        
+        // Set layers in CanvasStore
+        this.canvasStore.setLayers({
+            mainLayer: this.mainLayer,
+            tempLayer: this.tempLayer,
+            gridLayer: this.gridLayer
+        });
 
-        // Center the view
-        this.centerView();
+        this.logger.info('Canvas2D layers initialized:', {
+            gridLayer: this.gridLayer.id(),
+            mainLayer: this.mainLayer.id(),
+            tempLayer: this.tempLayer.id()
+        });
 
-        // Draw initial grid
-        this.drawGrid();
+        // Notify tools about available layers
+        this.eventManager.emit('canvas:layers', {
+            mainLayer: this.mainLayer,
+            tempLayer: this.tempLayer,
+            gridLayer: this.gridLayer
+        });
 
-        // Setup event listeners
+        this.initialize();
+    }
+
+    private initialize(): void {
         this.setupEventListeners();
-        this.setupKeyboardShortcuts();
-
-        // Handle window resize
-        window.addEventListener('resize', this.handleResize.bind(this));
-
-        // Subscribe to store changes
-        this.store.subscribe(() => this.updateFromStore());
-
-        // Initial update from store
-        this.updateFromStore();
-    }
-
-    private centerView(): void {
-        // Get stage dimensions
-        const stageWidth = this.stage.width();
-        const stageHeight = this.stage.height();
-
-        // Set the new position for both layers to center
-        const centerX = stageWidth / 2;
-        const centerY = stageHeight / 2;
-
-        this.gridLayer.position({ x: centerX, y: centerY });
-        this.layer.position({ x: centerX, y: centerY });
-
-        // Update the stage
-        this.stage.batchDraw();
-    }
-
-    private drawGrid(): void {
-        // Clear existing grid
-        this.gridLayer.destroyChildren();
-
-        // Calculate grid dimensions
-        const viewportWidth = this.stage.width() * 2;
-        const viewportHeight = this.stage.height() * 2;
-        const offsetX = -viewportWidth / 2;
-        const offsetY = -viewportHeight / 2;
-
-        // Add background
-        const background = new Konva.Rect({
-            x: offsetX,
-            y: offsetY,
-            width: viewportWidth,
-            height: viewportHeight,
-            fill: '#f8f9fa'
-        });
-        this.gridLayer.add(background);
-
-        // Draw grid lines
-        for (let x = offsetX; x <= viewportWidth / 2; x += this.gridSize) {
-            this.gridLayer.add(new Konva.Line({
-                points: [x, offsetY, x, -offsetY],
-                stroke: x === 0 ? '#2c3e50' : '#e2e8f0',
-                strokeWidth: x === 0 ? 2 : 1
-            }));
-        }
-
-        for (let y = offsetY; y <= viewportHeight / 2; y += this.gridSize) {
-            this.gridLayer.add(new Konva.Line({
-                points: [offsetX, y, -offsetX, y],
-                stroke: y === 0 ? '#2c3e50' : '#e2e8f0',
-                strokeWidth: y === 0 ? 2 : 1
-            }));
-        }
-
-        // Add "2D Editor" label
-        const label = new Konva.Text({
-            x: 20,
-            y: 20,
-            text: '2D Editor - Click and drag to draw walls',
-            fontSize: 16,
-            fontFamily: 'Arial',
-            fill: '#2c3e50',
-            padding: 10,
-            backgroundColor: 'rgba(255,255,255,0.8)',
-            cornerRadius: 5
-        });
-        this.gridLayer.add(label);
-
-        this.gridLayer.batchDraw();
-    }
-
-    private getRelativePointerPosition(): Point | null {
-        const pos = this.stage.getPointerPosition();
-        if (!pos) return null;
-
-        // Get the current transform of the layer
-        const transform = this.layer.getAbsoluteTransform().copy();
-        // Invert the transform to get the correct relative position
-        transform.invert();
-        // Transform the point
-        const transformedPos = transform.point(pos);
-
-        return {
-            x: transformedPos.x,
-            y: transformedPos.y
-        };
+        this.setupZoomHandling();
+        this.setupPanHandling();
+        this.drawGrid();
+        window.addEventListener('resize', this.handleResize);
     }
 
     private setupEventListeners(): void {
-        // Add mouse wheel zoom
+        this.stage.on('mousedown touchstart', (e) => {
+            // Skip emitting canvas events if right-clicking (for pan)
+            if (e.evt.button === 2) return;
+            
+            const pos = this.getRelativePointerPosition();
+            this.eventManager.emit('canvas:event', {
+                type: 'mousedown',
+                position: pos,
+                originalEvent: e,
+                button: e.evt.button
+            });
+        });
+
+        this.stage.on('mousemove touchmove', (e) => {
+            // Skip emitting canvas events if panning
+            if (this.isPanning) return;
+            
+            const pos = this.getRelativePointerPosition();
+            this.eventManager.emit('canvas:event', {
+                type: 'mousemove',
+                position: pos,
+                originalEvent: e,
+                button: e.evt.button
+            });
+        });
+
+        this.stage.on('mouseup touchend', (e) => {
+            // Skip emitting canvas events if right-clicking (for pan)
+            if (e.evt.button === 2) return;
+            
+            const pos = this.getRelativePointerPosition();
+            this.eventManager.emit('canvas:event', {
+                type: 'mouseup',
+                position: pos,
+                originalEvent: e,
+                button: e.evt.button
+            });
+        });
+    }
+
+    private setupZoomHandling(): void {
         this.stage.on('wheel', (e) => {
             e.evt.preventDefault();
             
-            const oldScale = this.layer.scaleX();
+            const oldScale = this.stage.scaleX();
             const pointer = this.stage.getPointerPosition();
             
             if (!pointer) return;
             
             const mousePointTo = {
-                x: (pointer.x - this.layer.x()) / oldScale,
-                y: (pointer.y - this.layer.y()) / oldScale,
+                x: (pointer.x - this.stage.x()) / oldScale,
+                y: (pointer.y - this.stage.y()) / oldScale,
             };
             
-            // How much we zoom
-            const zoomAmount = e.evt.deltaY > 0 ? 0.9 : 1.1;
+            // Calculate new scale
+            let newScale = e.evt.deltaY < 0 ? oldScale * this.zoomFactor : oldScale / this.zoomFactor;
             
-            // Apply zoom
-            const newScale = oldScale * zoomAmount;
+            // Enforce zoom limits
+            newScale = Math.max(this.minZoom, Math.min(this.maxZoom, newScale));
             
-            // Limit zoom
-            if (newScale > 0.1 && newScale < 5) {
-                this.layer.scale({ x: newScale, y: newScale });
-                this.gridLayer.scale({ x: newScale, y: newScale });
-                
-                // Update position to maintain mouse point
-                const newPos = {
-                    x: pointer.x - mousePointTo.x * newScale,
-                    y: pointer.y - mousePointTo.y * newScale,
-                };
-                this.layer.position(newPos);
-                this.gridLayer.position(newPos);
-                
-                this.stage.batchDraw();
-            }
-        });
-
-        // Handle drawing and dragging
-        this.stage.on('mousedown touchstart', (e) => {
-            e.evt.preventDefault();
-
-            if (this.currentTool === ToolType.WALL) {
-                const pos = this.getRelativePointerPosition();
-                if (!pos) return;
-                this.startDrawing(pos);
-            } else if (this.currentTool === ToolType.MOVE) {
-                // Enable dragging for move tool
-                this.stage.draggable(true);
-                // Store the initial transform
-                this.gridLayer.startPos = {
-                    x: this.gridLayer.x(),
-                    y: this.gridLayer.y()
-                };
-                this.layer.startPos = {
-                    x: this.layer.x(),
-                    y: this.layer.y()
-                };
-            }
-        });
-
-        this.stage.on('mousemove touchmove', (e) => {
-            e.evt.preventDefault();
-            if (this.isDrawing) {
-                this.handleDrawing(e);
-            } else if (this.currentTool === ToolType.MOVE && this.stage.isDragging()) {
-                // Sync grid layer with main layer during drag
-                const dx = this.layer.x() - this.layer.startPos.x;
-                const dy = this.layer.y() - this.layer.startPos.y;
-                this.gridLayer.position({
-                    x: this.gridLayer.startPos.x + dx,
-                    y: this.gridLayer.startPos.y + dy
-                });
-            }
-        });
-
-        this.stage.on('mouseup touchend', () => {
-            if (this.isDrawing) {
-                this.handleDrawingEnd();
-            }
-            // Disable dragging after mouse up
-            this.stage.draggable(false);
-        });
-
-        // Handle mouse leave
-        this.stage.on('mouseleave', () => {
-            if (this.isDrawing) {
-                this.handleDrawingEnd();
-            }
-            this.stage.draggable(false);
-        });
-
-        // Add selection functionality
-        this.layer.on('click tap', (e) => {
-            if (this.currentTool === ToolType.SELECT) {
-                this.handleSelection(e);
-            }
-        });
-
-        // Debug: Log pointer position
-        this.stage.on('mousemove', () => {
-            const pos = this.getRelativePointerPosition();
-            if (pos) {
-                const debugOverlay = document.querySelector('.debug-overlay');
-                if (debugOverlay) {
-                    debugOverlay.textContent = `Position: ${Math.round(pos.x)}, ${Math.round(pos.y)}`;
-                }
-            }
-        });
-    }
-
-    private handleStageClick(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
-        if (this.currentTool === ToolType.WALL) {
-            const pos = this.stage.getPointerPosition();
-            if (!pos) return;
-
-            if (!this.isDrawing) {
-                this.startDrawing(pos);
-            }
-        }
-    }
-
-    private startDrawing(pos: Point): void {
-        const layerPos = this.getRelativePointerPosition();
-        if (!layerPos) return;
-
-        // Aplicar snap al punto inicial
-        const snappedPos = this.findSnapPoint(layerPos);
-
-        this.isDrawing = true;
-        this.tempLine = new Konva.Line({
-            points: [snappedPos.x, snappedPos.y, snappedPos.x, snappedPos.y],
-            stroke: '#2c3e50',
-            strokeWidth: 3,
-            dash: [5, 5],
-            lineCap: 'round'
-        });
-        this.layer.add(this.tempLine);
-
-        // Mostrar indicador de snap si es necesario
-        if (snappedPos !== layerPos) {
-            this.drawSnapIndicator(snappedPos);
-        }
-    }
-
-    private handleDrawing(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
-        const layerPos = this.getRelativePointerPosition();
-        if (!layerPos || !this.tempLine) return;
-
-        const points = this.tempLine.points();
-        const snapPoint = this.findSnapPoint(layerPos);
-
-        // Actualizar la línea temporal con el punto de snap
-        this.tempLine.points([points[0], points[1], snapPoint.x, snapPoint.y]);
-
-        // Dibujar indicador visual de snap si estamos en un punto de snap
-        if (snapPoint !== layerPos) {
-            this.drawSnapIndicator(snapPoint);
-        } else {
-            this.clearSnapIndicators();
-        }
-
-        this.layer.batchDraw();
-    }
-
-    private handleDrawingEnd(): void {
-        if (!this.isDrawing || !this.tempLine) return;
-
-        const points = this.tempLine.points();
-        const start: Point = { x: points[0], y: points[1] };
-        const end: Point = { x: points[2], y: points[3] };
-
-        // Aplicar snap al punto final antes de crear la pared
-        const snappedEnd = this.findSnapPoint(end);
-
-        // Solo crear la pared si tiene una longitud mínima
-        if (this.getDistance(start, snappedEnd) > 10) {
-            const command = new AddWallCommand(this.store, start, snappedEnd);
-            this.store.executeCommand(command);
-        }
-
-        this.tempLine.destroy();
-        this.tempLine = null;
-        this.isDrawing = false;
-        this.clearSnapIndicators();
-        this.layer.batchDraw();
-    }
-
-    private getDistance(p1: Point, p2: Point): number {
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    private handleSelection(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
-        // Deselect previous selection
-        if (this.selectedShape) {
-            this.selectedShape.strokeWidth(2);
-        }
-
-        const clickedShape = e.target;
-        if (clickedShape instanceof Konva.Shape) {
-            this.selectedShape = clickedShape;
-            this.selectedShape.strokeWidth(4);
-            this.layer.batchDraw();
-        } else {
-            this.selectedShape = null;
-        }
-    }
-
-    private updateFromStore(): void {
-        // Clear existing shapes
-        this.layer.destroyChildren();
-
-        // Redraw walls
-        this.store.getWalls().forEach(wall => {
-            const line = new Konva.Line({
-                points: [wall.start.x, wall.start.y, wall.end.x, wall.end.y],
-                stroke: '#2c3e50',
-                strokeWidth: 3,
-                lineCap: 'round',
-                id: wall.id
+            // Skip if no scale change
+            if (newScale === oldScale) return;
+            
+            this.currentZoom = newScale;
+            
+            // Calculate new position
+            const newPos = {
+                x: pointer.x - mousePointTo.x * newScale,
+                y: pointer.y - mousePointTo.y * newScale,
+            };
+            
+            // Apply new scale and position
+            this.stage.scale({ x: newScale, y: newScale });
+            this.stage.position(newPos);
+            this.stage.batchDraw();
+            
+            // Update grid to maintain consistent spacing
+            this.drawGrid();
+            
+            // Emit zoom event for other components
+            this.eventManager.emit('canvas:zoom', {
+                scale: newScale,
+                position: newPos,
+                pointer: pointer
             });
-            this.layer.add(line);
         });
-
-        // Redraw openings (doors and windows)
-        this.store.getOpenings().forEach(opening => {
-            const rect = new Konva.Rect({
-                x: opening.position.x - opening.width / 2,
-                y: opening.position.y - opening.width / 2,
-                width: opening.width,
-                height: opening.width,
-                fill: opening.type === 'door' ? '#e67e22' : '#3498db',
-                cornerRadius: 4,
-                id: opening.id
-            });
-            this.layer.add(rect);
-        });
-
-        this.layer.batchDraw();
     }
 
-    private handleResize(): void {
-        // Update stage size to match container
-        this.stage.width(this.container.clientWidth);
-        this.stage.height(this.container.clientHeight);
+    private setupPanHandling(): void {
+        // Prevent context menu on right click
+        this.stage.container().addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        // Start panning on right mouse button down
+        this.stage.on('mousedown', (e) => {
+            // Check if it's right mouse button (button === 2)
+            if (e.evt.button === 2) {
+                e.evt.preventDefault();
+                this.isPanning = true;
+                this.lastPointerPosition = this.stage.getPointerPosition();
+                // Change cursor to indicate panning
+                document.body.style.cursor = 'grabbing';
+            }
+        });
+
+        // Handle panning movement
+        this.stage.on('mousemove', (e) => {
+            if (!this.isPanning || !this.lastPointerPosition) return;
+
+            const newPointerPosition = this.stage.getPointerPosition();
+            if (!newPointerPosition) return;
+
+            // Calculate the distance moved
+            const dx = newPointerPosition.x - this.lastPointerPosition.x;
+            const dy = newPointerPosition.y - this.lastPointerPosition.y;
+
+            // Update stage position
+            this.stage.position({
+                x: this.stage.x() + dx,
+                y: this.stage.y() + dy
+            });
+            this.stage.batchDraw();
+
+            // Update grid
+            this.drawGrid();
+
+            // Store new position
+            this.lastPointerPosition = newPointerPosition;
+
+            // Emit pan event
+            this.eventManager.emit('canvas:pan', {
+                position: this.stage.position(),
+                delta: { x: dx, y: dy }
+            });
+        });
+
+        // Stop panning on mouse up or leave
+        const stopPanning = () => {
+            this.isPanning = false;
+            this.lastPointerPosition = null;
+            document.body.style.cursor = 'default';
+        };
+
+        this.stage.on('mouseup', (e) => {
+            if (e.evt.button === 2) {
+                stopPanning();
+            }
+        });
+
+        this.stage.on('mouseleave', stopPanning);
+    }
+
+    private handleResize = (): void => {
+        const container = this.stage.container();
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        this.stage.width(width);
+        this.stage.height(height);
+        this.drawGrid();
+    };
+
+    private drawGrid(): void {
+        const width = this.stage.width();
+        const height = this.stage.height();
+        const spacing = 20 * this.currentZoom;
+
+        this.gridLayer.destroyChildren();
+
+        // Adjust grid based on zoom level
+        const stageRect = {
+            x: -this.stage.x() / this.currentZoom,
+            y: -this.stage.y() / this.currentZoom,
+            width: width / this.currentZoom,
+            height: height / this.currentZoom
+        };
+
+        // Vertical lines
+        for (let x = Math.floor(stageRect.x / spacing) * spacing; x < stageRect.x + stageRect.width; x += spacing) {
+            this.gridLayer.add(new Konva.Line({
+                points: [x, stageRect.y, x, stageRect.y + stageRect.height],
+                stroke: '#ddd',
+                strokeWidth: 1 / this.currentZoom
+            }));
+        }
+
+        // Horizontal lines
+        for (let y = Math.floor(stageRect.y / spacing) * spacing; y < stageRect.y + stageRect.height; y += spacing) {
+            this.gridLayer.add(new Konva.Line({
+                points: [stageRect.x, y, stageRect.x + stageRect.width, y],
+                stroke: '#ddd',
+                strokeWidth: 1 / this.currentZoom
+            }));
+        }
+
+        this.gridLayer.batchDraw();
+    }
+
+    private getRelativePointerPosition(): Point {
+        const pos = this.stage.getPointerPosition();
+        if (!pos) {
+            return { x: 0, y: 0 };
+        }
+
+        // Get the current transform of the stage
+        const transform = {
+            x: this.stage.x(),
+            y: this.stage.y(),
+            scale: this.stage.scaleX()
+        };
+
+        // Calculate the actual position in the scaled and transformed space
+        return {
+            x: (pos.x - transform.x) / transform.scale,
+            y: (pos.y - transform.y) / transform.scale
+        };
+    }
+
+    dispose(): void {
+        window.removeEventListener('resize', this.handleResize);
+        this.stage.destroy();
+    }
+
+    getStage(): Konva.Stage {
+        return this.stage;
+    }
+
+    getMainLayer(): Konva.Layer {
+        return this.mainLayer;
+    }
+
+    getTempLayer(): Konva.Layer {
+        return this.tempLayer;
+    }
+
+    getZoom(): number {
+        return this.currentZoom;
+    }
+
+    setZoom(zoom: number, center?: Point): void {
+        const oldScale = this.stage.scaleX();
+        let newScale = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
         
-        // Center the view
-        this.centerView();
+        if (newScale === oldScale) return;
         
-        // Redraw grid
+        const pointer = center || {
+            x: this.stage.width() / 2,
+            y: this.stage.height() / 2
+        };
+        
+        const mousePointTo = {
+            x: (pointer.x - this.stage.x()) / oldScale,
+            y: (pointer.y - this.stage.y()) / oldScale,
+        };
+        
+        const newPos = {
+            x: pointer.x - mousePointTo.x * newScale,
+            y: pointer.y - mousePointTo.y * newScale,
+        };
+        
+        this.currentZoom = newScale;
+        this.stage.scale({ x: newScale, y: newScale });
+        this.stage.position(newPos);
+        this.stage.batchDraw();
+        
         this.drawGrid();
         
-        // Update layers
-        this.gridLayer.batchDraw();
-        this.layer.batchDraw();
-    }
-
-    public setTool(tool: ToolType): void {
-        this.currentTool = tool;
-        // Reset any ongoing operations when tool changes
-        if (this.isDrawing) {
-            this.handleDrawingEnd();
-        }
-        if (this.selectedShape) {
-            this.selectedShape.strokeWidth(2);
-            this.selectedShape = null;
-            this.layer.batchDraw();
-        }
-        // Disable stage dragging when in wall drawing mode
-        this.stage.draggable(tool === ToolType.MOVE);
-    }
-
-    public clear(): void {
-        this.layer.destroyChildren();
-        this.layer.batchDraw();
-        this.store.clear();
-    }
-
-    // Add keyboard shortcuts for undo/redo
-    private setupKeyboardShortcuts(): void {
-        window.addEventListener('keydown', (e) => {
-            // Check if Ctrl/Cmd key is pressed
-            if (e.ctrlKey || e.metaKey) {
-                switch (e.key.toLowerCase()) {
-                    case 'z':
-                        if (e.shiftKey) {
-                            // Ctrl+Shift+Z or Cmd+Shift+Z for Redo
-                            this.store.redo();
-                        } else {
-                            // Ctrl+Z or Cmd+Z for Undo
-                            this.store.undo();
-                        }
-                        e.preventDefault();
-                        break;
-                    case 'y':
-                        // Ctrl+Y or Cmd+Y for Redo
-                        this.store.redo();
-                        e.preventDefault();
-                        break;
-                }
-            }
+        this.eventManager.emit('canvas:zoom', {
+            scale: newScale,
+            position: newPos,
+            pointer: pointer
         });
-    }
-
-    private findSnapPoint(point: Point): Point {
-        // Primero, intentamos snap a los puntos finales de las paredes existentes
-        const walls = this.store.getWalls();
-        for (const wall of walls) {
-            // Comprobar el punto inicial de la pared
-            if (this.getDistance(point, wall.start) < this.SNAP_THRESHOLD) {
-                return wall.start;
-            }
-            // Comprobar el punto final de la pared
-            if (this.getDistance(point, wall.end) < this.SNAP_THRESHOLD) {
-                return wall.end;
-            }
-        }
-
-        // Si no encontramos un punto para hacer snap, devolvemos el punto original
-        return point;
-    }
-
-    private drawSnapIndicator(point: Point): void {
-        // Limpiar indicadores anteriores
-        this.clearSnapIndicators();
-
-        // Crear un nuevo indicador
-        const indicator = new Konva.Circle({
-            x: point.x,
-            y: point.y,
-            radius: 5,
-            fill: '#2ecc71',
-            stroke: '#27ae60',
-            strokeWidth: 2,
-            name: 'snap-indicator' // Para poder identificarlo después
-        });
-
-        this.layer.add(indicator);
-        this.layer.batchDraw();
-    }
-
-    private clearSnapIndicators(): void {
-        // Eliminar todos los indicadores de snap existentes
-        this.layer.find('.snap-indicator').forEach(node => node.destroy());
-        this.layer.batchDraw();
     }
 } 

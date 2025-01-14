@@ -1,0 +1,155 @@
+.region {
+    position: absolute;
+    box-sizing: border-box;
+}
+
+.region-topbar {
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    z-index: 1000;
+}
+
+.region-toolbar {
+    top: 40px;
+    left: 0;
+    width: 48px;
+    bottom: 24px;
+    background: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+    z-index: 900;
+}
+
+.region-sidebar {
+    top: 40px;
+    right: 0;
+    width: 300px;
+    bottom: 24px;
+    background: #f8f9fa;
+    border-left: 1px solid #dee2e6;
+    z-index: 900;
+    display: none;
+}
+
+.region-sidebar.visible {
+    display: block;
+}
+
+.region-statusbar {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 24px;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    z-index: 1000;
+    font-size: 12px;
+}
+
+.region-canvas {
+    top: 40px;
+    left: 48px;
+    right: 0;
+    bottom: 24px;
+    background: #fff;
+    z-index: 0;
+}
+
+.region-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.region-modal.visible {
+    display: flex;
+}
+
+/* Componentes dentro de las regiones */
+.component {
+    display: flex;
+    align-items: center;
+}
+
+/* Estilos específicos para la barra superior */
+.region-topbar .component {
+    margin-right: 16px;
+}
+
+.region-topbar .component:last-child {
+    margin-right: 0;
+}
+
+/* Estilos para menús en la barra superior */
+.topbar-menu {
+    position: relative;
+    display: inline-block;
+}
+
+.topbar-menu-trigger {
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.topbar-menu-trigger:hover {
+    background: #e9ecef;
+}
+
+.topbar-menu-content {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    min-width: 200px;
+    display: none;
+    z-index: 1100;
+}
+
+.topbar-menu.open .topbar-menu-content {
+    display: block;
+}
+
+.topbar-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.topbar-menu-item:hover {
+    background: #f8f9fa;
+}
+
+.topbar-menu-item i {
+    margin-right: 8px;
+}
+
+.topbar-menu-separator {
+    height: 1px;
+    background: #dee2e6;
+    margin: 4px 0;
+} 
