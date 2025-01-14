@@ -86,29 +86,41 @@ export class Canvas2D {
 
     private setupEventListeners(): void {
         this.stage.on('mousedown touchstart', (e) => {
+            // Skip emitting canvas events if right-clicking (for pan)
+            if (e.evt.button === 2) return;
+            
             const pos = this.getRelativePointerPosition();
             this.eventManager.emit('canvas:event', {
                 type: 'mousedown',
                 position: pos,
-                originalEvent: e
+                originalEvent: e,
+                button: e.evt.button
             });
         });
 
         this.stage.on('mousemove touchmove', (e) => {
+            // Skip emitting canvas events if panning
+            if (this.isPanning) return;
+            
             const pos = this.getRelativePointerPosition();
             this.eventManager.emit('canvas:event', {
                 type: 'mousemove',
                 position: pos,
-                originalEvent: e
+                originalEvent: e,
+                button: e.evt.button
             });
         });
 
         this.stage.on('mouseup touchend', (e) => {
+            // Skip emitting canvas events if right-clicking (for pan)
+            if (e.evt.button === 2) return;
+            
             const pos = this.getRelativePointerPosition();
             this.eventManager.emit('canvas:event', {
                 type: 'mouseup',
                 position: pos,
-                originalEvent: e
+                originalEvent: e,
+                button: e.evt.button
             });
         });
     }

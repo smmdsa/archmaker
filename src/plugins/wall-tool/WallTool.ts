@@ -65,6 +65,11 @@ export class WallTool extends BaseTool {
         isDragging: false
     };
 
+    // Add angle constraint properties
+    private readonly RECT_ANGLE_SNAP = 90; // For CTRL key
+    private readonly ANGLE_SNAP = 15;      // For SHIFT key
+    private readonly GRID_SNAP = 10;       // For ALT key
+
     constructor(
         eventManager: IEventManager,
         logger: ILogger,
@@ -145,7 +150,44 @@ export class WallTool extends BaseTool {
         if (!event.position || !this.state.isDrawing || !this.state.previewLine || !this.state.startNode) return;
 
         const hitNode = this.findNodeAtPosition(event.position);
-        const endPoint = hitNode ? hitNode.position : event.position;
+        let endPoint = hitNode ? hitNode.position : event.position;
+
+        // Apply grid snap if ALT is pressed
+        if (event.originalEvent?.evt.altKey) {
+            // First snap the end point to grid
+            endPoint = this.snapToGrid(endPoint);
+            // Then ensure the distance is also a multiple of grid size
+            endPoint = this.snapDistanceToGrid(this.state.startNode.position, endPoint);
+        }
+
+        // Apply angle constraints if modifier keys are pressed
+        if (event.originalEvent?.evt.ctrlKey || event.originalEvent?.evt.shiftKey) {
+            const start = this.state.startNode.position;
+            const angle = this.calculateAngle(start, endPoint);
+            const distance = this.calculateDistance(start, endPoint);
+
+            let snappedAngle;
+            if (event.originalEvent.evt.ctrlKey) {
+                // Snap to nearest 90 degrees
+                snappedAngle = Math.round(angle / this.RECT_ANGLE_SNAP) * this.RECT_ANGLE_SNAP;
+            } else if (event.originalEvent.evt.shiftKey) {
+                // Snap to nearest 15 degrees
+                snappedAngle = Math.round(angle / this.ANGLE_SNAP) * this.ANGLE_SNAP;
+            }
+
+            if (snappedAngle !== undefined) {
+                const radians = (snappedAngle * Math.PI) / 180;
+                endPoint = {
+                    x: start.x + distance * Math.cos(radians),
+                    y: start.y + distance * Math.sin(radians)
+                };
+                
+                // If ALT is also pressed, ensure the distance is a multiple of grid size
+                if (event.originalEvent.evt.altKey) {
+                    endPoint = this.snapDistanceToGrid(start, endPoint);
+                }
+            }
+        }
 
         // Update preview line
         this.state.previewLine.points([
@@ -159,22 +201,106 @@ export class WallTool extends BaseTool {
         layers?.tempLayer.batchDraw();
     }
 
+    private calculateAngle(start: Point, end: Point): number {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        // Calculate angle in degrees (0 to 360)
+        let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+        if (angle < 0) angle += 360;
+        return angle;
+    }
+
+    private calculateDistance(start: Point, end: Point): number {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
     private async handleNodeMoveMouseMove(event: CanvasEvent): Promise<void> {
         if (!event.position || !this.state.isDragging || !this.state.activeNode) return;
 
         const graph = this.canvasStore.getWallGraph();
         const nearestNode = this.findNearestNode(event.position, this.state.activeNode);
-        const targetPosition = nearestNode && this.isWithinSnapThreshold(event.position, nearestNode.position) 
+        let targetPosition = nearestNode && this.isWithinSnapThreshold(event.position, nearestNode.position) 
             ? nearestNode.position 
             : event.position;
 
-        // Update node position
-        this.state.activeNode.setPosition(targetPosition.x, targetPosition.y);
-
-        // Get connected walls and update their geometry
+        // Get connected walls to determine reference points for angle constraints
         const connectedWalls = this.state.activeNode.getConnectedWalls()
             .map(id => graph.getWall(id))
             .filter((wall): wall is WallObject => wall !== undefined);
+
+        // Apply grid snap if ALT is pressed
+        if (event.originalEvent?.evt.altKey && connectedWalls.length > 0) {
+            // First snap the position to grid
+            targetPosition = this.snapToGrid(targetPosition);
+            
+            // Then ensure the distance to connected nodes is a multiple of grid size
+            for (const wall of connectedWalls) {
+                const otherNodeId = wall.getStartNodeId() === this.state.activeNode.id ? 
+                    wall.getEndNodeId() : wall.getStartNodeId();
+                const otherNode = graph.getNode(otherNodeId);
+                if (otherNode) {
+                    targetPosition = this.snapDistanceToGrid(otherNode.position, targetPosition);
+                    break; // Only use the first connected wall as reference
+                }
+            }
+        }
+
+        // Apply angle constraints if modifier keys are pressed
+        if ((event.originalEvent?.evt.ctrlKey || event.originalEvent?.evt.shiftKey) && connectedWalls.length > 0) {
+            // Find the first connected node to use as reference point
+            let referenceNode: Point | null = null;
+            
+            // Try to find a reference node from connected walls
+            for (const wall of connectedWalls) {
+                const startNodeId = wall.getStartNodeId();
+                const endNodeId = wall.getEndNodeId();
+                if (startNodeId !== this.state.activeNode.id) {
+                    const node = graph.getNode(startNodeId);
+                    if (node) {
+                        referenceNode = node.position;
+                        break;
+                    }
+                } else if (endNodeId !== this.state.activeNode.id) {
+                    const node = graph.getNode(endNodeId);
+                    if (node) {
+                        referenceNode = node.position;
+                        break;
+                    }
+                }
+            }
+
+            if (referenceNode) {
+                const angle = this.calculateAngle(referenceNode, targetPosition);
+                const distance = this.calculateDistance(referenceNode, targetPosition);
+
+                let snappedAngle;
+                if (event.originalEvent.evt.ctrlKey) {
+                    // Snap to nearest 90 degrees
+                    snappedAngle = Math.round(angle / this.RECT_ANGLE_SNAP) * this.RECT_ANGLE_SNAP;
+                } else if (event.originalEvent.evt.shiftKey) {
+                    // Snap to nearest 15 degrees
+                    snappedAngle = Math.round(angle / this.ANGLE_SNAP) * this.ANGLE_SNAP;
+                }
+
+                if (snappedAngle !== undefined) {
+                    const radians = (snappedAngle * Math.PI) / 180;
+                    targetPosition = {
+                        x: referenceNode.x + distance * Math.cos(radians),
+                        y: referenceNode.y + distance * Math.sin(radians)
+                    };
+                    
+                    // If ALT is also pressed, ensure the distance is a multiple of grid size
+                    if (event.originalEvent.evt.altKey) {
+                        targetPosition = this.snapDistanceToGrid(referenceNode, targetPosition);
+                    }
+                }
+            }
+        }
+
+        // Update node position
+        this.state.activeNode.setPosition(targetPosition.x, targetPosition.y);
 
         // Update wall geometry based on node movement
         connectedWalls.forEach(wall => {
@@ -469,6 +595,30 @@ export class WallTool extends BaseTool {
         if (layers) {
             layers.mainLayer.batchDraw();
         }
+    }
+
+    private snapToGrid(position: Point): Point {
+        return {
+            x: Math.round(position.x / this.GRID_SNAP) * this.GRID_SNAP,
+            y: Math.round(position.y / this.GRID_SNAP) * this.GRID_SNAP
+        };
+    }
+
+    private snapDistanceToGrid(start: Point, end: Point): Point {
+        // Calculate current distance and angle
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const currentDistance = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        // Snap the distance to nearest grid multiple
+        const snappedDistance = Math.round(currentDistance / this.GRID_SNAP) * this.GRID_SNAP;
+
+        // Calculate new end point using snapped distance
+        return {
+            x: start.x + snappedDistance * Math.cos(angle),
+            y: start.y + snappedDistance * Math.sin(angle)
+        };
     }
 
     async activate(): Promise<void> {
