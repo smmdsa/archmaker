@@ -172,4 +172,32 @@ export class NodeObject extends BaseObject {
             }
         }
     }
+
+    // Convert to storage format
+    toStorageData(): NodeData {
+        return {
+            id: this.id,
+            position: { x: this.position.x, y: this.position.y },
+            connectedWallIds: Array.from(this.connectedWallIds),
+            radius: this.radius,
+            isMovable: this.isMovable
+        };
+    }
+
+    // Create from storage format
+    static fromStorageData(data: NodeData): NodeObject {
+        const node = new NodeObject(
+            data.id,
+            data.position,
+            data.radius || 5,
+            data.isMovable ?? true
+        );
+        
+        // Restore connected walls
+        data.connectedWallIds.forEach(wallId => {
+            node.addConnectedWall(wallId);
+        });
+
+        return node;
+    }
 } 

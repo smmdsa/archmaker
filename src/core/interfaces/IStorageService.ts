@@ -1,4 +1,4 @@
-import { ProjectData } from '../types/project';
+import { ProjectData } from '../storage/interfaces';
 
 export interface StorageOptions {
     format?: 'json' | 'yaml';

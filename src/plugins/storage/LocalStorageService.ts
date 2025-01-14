@@ -1,14 +1,20 @@
 import { IStorageService, StorageOptions } from '../../core/interfaces/IStorageService';
-import { ProjectData } from '../../core/types/project';
+import { ProjectData } from '../../core/storage/interfaces';
 import { ILogger } from '../../core/interfaces/ILogger';
 import { IEventManager } from '../../core/interfaces/IEventManager';
 import { IConfigManager } from '../../core/interfaces/IConfig';
-import yaml from 'js-yaml';
+import { JsonDataWriter, YamlDataWriter, JsonDataLoader, YamlDataLoader } from '../../core/storage';
 
 export class LocalStorageService implements IStorageService {
     private readonly STORAGE_KEY_PREFIX = 'archmaker2_';
     private readonly BACKUP_PREFIX = 'backup_';
     private initialized: boolean = false;
+
+    // Writers and loaders
+    private readonly jsonWriter = new JsonDataWriter();
+    private readonly yamlWriter = new YamlDataWriter();
+    private readonly jsonLoader = new JsonDataLoader();
+    private readonly yamlLoader = new YamlDataLoader();
 
     constructor(
         private readonly logger: ILogger,
@@ -23,7 +29,7 @@ export class LocalStorageService implements IStorageService {
         }
 
         try {
-            // Verificar si localStorage está disponible
+            // Check if localStorage is available
             if (!window.localStorage) {
                 throw new Error('LocalStorage is not available');
             }
@@ -31,7 +37,7 @@ export class LocalStorageService implements IStorageService {
             this.initialized = true;
             this.logger.info('LocalStorageService initialized');
 
-            // Emitir evento de inicialización
+            // Emit initialization event
             await this.eventManager.emit('storage:initialized', { provider: 'local' });
         } catch (error) {
             this.logger.error('Failed to initialize LocalStorageService', error as Error);
@@ -49,7 +55,7 @@ export class LocalStorageService implements IStorageService {
             this.initialized = false;
             this.logger.info('LocalStorageService disposed');
 
-            // Emitir evento de disposición
+            // Emit disposal event
             await this.eventManager.emit('storage:disposed', { provider: 'local' });
         } catch (error) {
             this.logger.error('Failed to dispose LocalStorageService', error as Error);
@@ -65,17 +71,17 @@ export class LocalStorageService implements IStorageService {
 
     private serializeData(data: ProjectData, options?: StorageOptions): string {
         if (options?.format === 'yaml') {
-            return yaml.dump(data, { indent: options.pretty ? 2 : 0 });
+            return this.yamlWriter.write(data);
         }
-        return JSON.stringify(data, null, options?.pretty ? 2 : 0);
+        return this.jsonWriter.write(data);
     }
 
     private deserializeData(data: string, format: 'json' | 'yaml' = 'json'): ProjectData {
         try {
             if (format === 'yaml') {
-                return yaml.load(data) as ProjectData;
+                return this.yamlLoader.load(data);
             }
-            return JSON.parse(data);
+            return this.jsonLoader.load(data);
         } catch (error) {
             throw new Error(`Failed to parse ${format.toUpperCase()} data: ${(error as Error).message}`);
         }
@@ -89,14 +95,19 @@ export class LocalStorageService implements IStorageService {
             const serializedData = this.serializeData(data, options);
             localStorage.setItem(key, serializedData);
 
-            // Guardar metadata para búsqueda rápida
+            // Save metadata for quick lookup
             const metadata = {
-                id: data.metadata.id,
-                name: data.metadata.name,
-                lastModified: new Date().toISOString(),
-                format: options?.format || 'json'
+                metadata: {
+                    id: data.metadata.id,
+                    name: data.metadata.name,
+                    version: data.metadata.version,
+                    created: data.metadata.created,
+                    lastModified: new Date().toISOString()
+                },
+                settings: data.settings,
+                canvas: { walls: [], doors: [], windows: [], rooms: [] }
             };
-            localStorage.setItem(`${key}_meta`, JSON.stringify(metadata));
+            localStorage.setItem(`${key}_meta`, this.jsonWriter.write(metadata));
 
             this.logger.info('Project saved', { projectId: data.metadata.id });
             await this.eventManager.emit('project:saved', { projectId: data.metadata.id });
@@ -117,11 +128,12 @@ export class LocalStorageService implements IStorageService {
                 throw new Error(`Project not found: ${path}`);
             }
 
-            // Obtener el formato del metadata
+            // Get format from metadata
             const metaStr = localStorage.getItem(`${path}_meta`);
-            const meta = metaStr ? JSON.parse(metaStr) : { format: 'json' };
+            const meta = metaStr ? this.jsonLoader.load(metaStr) as ProjectData : null;
+            const format = meta?.metadata?.version?.includes('yaml') ? 'yaml' : 'json';
 
-            const project = this.deserializeData(data, meta.format as 'json' | 'yaml');
+            const project = this.deserializeData(data, format);
             
             this.logger.info('Project loaded', { projectId: project.metadata.id });
             await this.eventManager.emit('project:loaded', { projectId: project.metadata.id });
@@ -144,11 +156,11 @@ export class LocalStorageService implements IStorageService {
                 if (key?.startsWith(this.STORAGE_KEY_PREFIX) && !key.endsWith('_meta')) {
                     const metaStr = localStorage.getItem(`${key}_meta`);
                     if (metaStr) {
-                        const meta = JSON.parse(metaStr);
+                        const meta = this.jsonLoader.load(metaStr) as ProjectData;
                         projects.push({
                             path: key,
-                            name: meta.name,
-                            lastModified: new Date(meta.lastModified)
+                            name: meta.metadata.name,
+                            lastModified: new Date(meta.metadata.lastModified)
                         });
                     }
                 }
@@ -221,7 +233,7 @@ export class LocalStorageService implements IStorageService {
                 throw new Error(`Backup not found: ${backupPath}`);
             }
 
-            // Extraer el path original del backup
+            // Extract original path from backup
             const originalPath = backupPath.replace(this.BACKUP_PREFIX, '').split('_')[0];
             
             localStorage.setItem(originalPath, data);

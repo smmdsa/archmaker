@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NodeObject } from '../../wall-tool/objects/NodeObject';
 import { WallGraph } from '../../wall-tool/models/WallGraph';
 import { WallObject } from '../../wall-tool/objects/WallObject';
+import { DoorData as StorageDoorData } from '../../../core/storage/interfaces';
 
 // Business logic interfaces
 export interface DoorProperties {
@@ -23,6 +24,20 @@ export interface DoorProperties {
 
 export interface DoorData {
     id: string;
+    wallId: string;
+    position: Point;
+    angle: number;
+    startNodeId: string;
+    endNodeId: string;
+    properties: DoorProperties;
+    isFlipped: boolean;
+    connectedNodes: {
+        startWallNodeId?: string;
+        endWallNodeId?: string;
+    };
+}
+
+export interface SerializedDoorData {
     wallId: string;
     position: Point;
     angle: number;
@@ -575,5 +590,129 @@ export class DoorObject extends BaseObject implements ISelectableObject {
             this.group.rotation(this.data.angle * 180 / Math.PI);
             this.group.getLayer()?.batchDraw();
         }
+    }
+
+    toJSON(): SerializedDoorData {
+        return {
+            wallId: this.data.wallId,
+            position: this.data.position,
+            angle: this.data.angle,
+            startNodeId: this.data.startNodeId,
+            endNodeId: this.data.endNodeId,
+            properties: {
+                ...this.data.properties
+            },
+            isFlipped: this.data.isFlipped,
+            connectedNodes: {
+                ...this.data.connectedNodes
+            }
+        };
+    }
+
+    fromJSON(data: SerializedDoorData): void {
+        this.data = {
+            ...this.data,
+            wallId: data.wallId,
+            position: data.position,
+            angle: data.angle,
+            startNodeId: data.startNodeId,
+            endNodeId: data.endNodeId,
+            properties: {
+                ...data.properties
+            },
+            isFlipped: data.isFlipped,
+            connectedNodes: {
+                ...data.connectedNodes
+            }
+        };
+
+        // Update visual styles
+        this.styles.normal.stroke = this.data.properties.color;
+        this.styles.normal.fill = this.data.properties.color;
+
+        // Update geometry and visuals
+        this.updateGeometry();
+        this.updateVisualStyle();
+        this.updateLabel();
+    }
+
+    // Convert to storage format
+    toStorageData(): StorageDoorData {
+        return {
+            id: this.id,
+            wallId: this.data.wallId,
+            position: this.getRelativePosition(),
+            width: this.data.properties.width,
+            height: this.data.properties.width,
+            style: 'default',
+            openDirection: this.data.properties.openDirection,
+            metadata: {
+                isOpen: this.data.properties.isOpen,
+                color: this.data.properties.color,
+                label: this.data.properties.label,
+                doorNumber: this._doorNumber
+            }
+        };
+    }
+
+    private getRelativePosition(): number {
+        const wall = this.wallGraph.getWall(this.data.wallId);
+        if (!wall) {
+            throw new Error(`Wall not found: ${this.data.wallId}`);
+        }
+
+        const startPoint = wall.getData().startPoint;
+        const endPoint = wall.getData().endPoint;
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const wallLength = Math.sqrt(dx * dx + dy * dy);
+
+        // Calculate relative position (0-1) along the wall
+        const doorDx = this.data.position.x - startPoint.x;
+        const doorDy = this.data.position.y - startPoint.y;
+        const doorProjection = (doorDx * dx + doorDy * dy) / wallLength;
+
+        return doorProjection / wallLength;
+    }
+
+    // Create from storage format
+    static fromStorageData(data: StorageDoorData, wallGraph: WallGraph): DoorObject {
+        const wall = wallGraph.getWall(data.wallId);
+        if (!wall) {
+            throw new Error(`Wall not found: ${data.wallId}`);
+        }
+
+        // Calculate actual position from relative position
+        const startPoint = wall.getData().startPoint;
+        const endPoint = wall.getData().endPoint;
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const position = {
+            x: startPoint.x + dx * data.position,
+            y: startPoint.y + dy * data.position
+        };
+
+        const door = new DoorObject({
+            wallId: data.wallId,
+            position,
+            angle: 0,
+            startNodeId: '',
+            endNodeId: '',
+            properties: {
+                width: data.width,
+                color: data.metadata?.color || '#8B4513',
+                isOpen: data.metadata?.isOpen || false,
+                openDirection: data.openDirection || 'left',
+                label: data.metadata?.label || ''
+            },
+            isFlipped: false,
+            connectedNodes: {}
+        }, wallGraph);
+
+        if (data.metadata?.doorNumber) {
+            door.setDoorNumber(data.metadata.doorNumber);
+        }
+
+        return door;
     }
 } 

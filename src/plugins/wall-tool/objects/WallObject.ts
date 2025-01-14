@@ -5,6 +5,7 @@ import { Layer } from 'konva/lib/Layer';
 import { Line } from 'konva/lib/shapes/Line';
 import { Text } from 'konva/lib/shapes/Text';
 import { Group } from 'konva/lib/Group';
+import { WallData } from '../../../core/storage/interfaces';
 
 interface WallData {
     startNodeId: string;
@@ -280,5 +281,29 @@ export class WallObject extends BaseObject {
                 this.wallGroup?.getLayer()?.batchDraw();
             }
         }
+    }
+
+    toStorageData(): WallData {
+        return {
+            id: this.id,
+            startNodeId: this.startNodeId,
+            endNodeId: this.endNodeId,
+            startPoint: { x: this.startPoint.x, y: this.startPoint.y },
+            endPoint: { x: this.endPoint.x, y: this.endPoint.y },
+            thickness: this.thickness,
+            height: this.height
+        };
+    }
+
+    static fromStorageData(data: WallData): WallObject {
+        return new WallObject(
+            data.id,
+            data.startNodeId,
+            data.endNodeId,
+            data.startPoint,
+            data.endPoint,
+            data.thickness || 10,
+            data.height || 280
+        );
     }
 } 

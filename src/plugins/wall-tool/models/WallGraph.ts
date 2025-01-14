@@ -84,6 +84,25 @@ export class WallGraph {
         return wall;
     }
 
+    addWall(wall: WallObject): void {
+        this.walls.set(wall.id, wall);
+        
+        // Update node connections
+        const { startNodeId, endNodeId } = wall.getData();
+        const startNode = this.nodes.get(startNodeId);
+        const endNode = this.nodes.get(endNodeId);
+        
+        startNode?.addConnectedWall(wall.id);
+        endNode?.addConnectedWall(wall.id);
+
+        this.eventManager.emit('wall:created', { wall });
+        this.eventManager.emit('graph:changed', {
+            nodeCount: this.nodes.size,
+            wallCount: this.walls.size,
+            roomCount: this.rooms.size
+        });
+    }
+
     getWall(id: string): WallObject | undefined {
         return this.walls.get(id);
     }
@@ -184,12 +203,19 @@ export class WallGraph {
         return Array.from(connectedNodes);
     }
 
+    // Node management
+    addNode(node: NodeObject): void {
+        this.nodes.set(node.id, node);
+        this.eventManager?.emit('node:created', { node });
+    }
+
+    // Clear all objects
     clear(): void {
+        // Clear nodes first to prevent dangling references
         this.nodes.clear();
         this.walls.clear();
         this.rooms.clear();
-        
-        this.eventManager.emit('graph:changed', {
+        this.eventManager?.emit('graph:changed', {
             nodeCount: 0,
             wallCount: 0,
             roomCount: 0

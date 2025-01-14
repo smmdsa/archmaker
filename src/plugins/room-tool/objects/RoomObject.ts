@@ -1,4 +1,4 @@
-import { BaseObject } from '../../../core/objects/BaseObject';
+import { BaseObject, BaseObjectData } from '../../../core/objects/BaseObject';
 import { SelectableObjectType } from '../../../core/interfaces/ISelectableObject';
 import { Point } from '../../../core/types/geometry';
 import { Group } from 'konva/lib/Group';
@@ -7,6 +7,8 @@ import { Text } from 'konva/lib/shapes/Text';
 import { Layer } from 'konva/lib/Layer';
 import { WallObject } from '../../wall-tool/objects/WallObject';
 import { WallGraph } from '../../wall-tool/models/WallGraph';
+import { RoomData as StorageRoomData } from '../../../core/storage/interfaces';
+import { RoomData } from '../../../core/storage/interfaces';
 
 interface RoomData {
     wallIds: string[];
@@ -14,6 +16,16 @@ interface RoomData {
     name: string;
     width: number;
     height: number;
+}
+
+export interface SerializedRoomData extends BaseObjectData {
+    wallIds: string[];
+    area: number;
+    name: string;
+    width: number;
+    height: number;
+    color?: string;
+    texture?: string;
 }
 
 export class RoomObject extends BaseObject {
@@ -164,6 +176,111 @@ export class RoomObject extends BaseObject {
         this.name = name;
         if (this.roomLabel) {
             this.roomLabel.text(`${this.name}\n${this.area.toFixed(2)}m²`);
+        }
+    }
+
+    toJSON(): SerializedRoomData {
+        return {
+            ...super.toJSON(),
+            wallIds: Array.from(this.wallIds),
+            area: this.area,
+            name: this.name,
+            width: this.roomWidth,
+            height: this.roomHeight,
+            color: this.styles.normal.fill,
+            texture: undefined // For future use
+        };
+    }
+
+    fromJSON(data: SerializedRoomData): void {
+        super.fromJSON(data);
+        this.wallIds = new Set(data.wallIds);
+        this.area = data.area;
+        this.name = data.name;
+        this.roomWidth = data.width;
+        this.roomHeight = data.height;
+        
+        if (data.color) {
+            this.styles.normal.fill = data.color;
+        }
+
+        // Update visual representation
+        if (this.roomShape) {
+            const style = this._isSelected ? this.styles.selected :
+                         this._isHighlighted ? this.styles.highlighted :
+                         this.styles.normal;
+            this.roomShape.fill(style.fill);
+        }
+
+        if (this.roomLabel) {
+            this.roomLabel.text(`${this.name}\n${this.area.toFixed(2)}m²`);
+        }
+
+        this.updatePosition();
+    }
+
+    // Convert to storage format
+    toStorageData(): RoomData {
+        return {
+            id: this.id,
+            wallIds: Array.from(this.wallIds),
+            name: this.name,
+            area: this.area,
+            color: this.styles.normal.fill,
+            metadata: {
+                width: this.roomWidth,
+                height: this.roomHeight
+            }
+        };
+    }
+
+    // Create from storage format
+    static fromStorageData(data: RoomData, graph: WallGraph): RoomObject {
+        // Calculate room dimensions from walls if possible
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        data.wallIds.forEach(wallId => {
+            const wall = graph.getWall(wallId);
+            if (wall) {
+                const wallData = wall.getData();
+                minX = Math.min(minX, wallData.startPoint.x, wallData.endPoint.x);
+                minY = Math.min(minY, wallData.startPoint.y, wallData.endPoint.y);
+                maxX = Math.max(maxX, wallData.startPoint.x, wallData.endPoint.x);
+                maxY = Math.max(maxY, wallData.startPoint.y, wallData.endPoint.y);
+            }
+        });
+
+        // Use stored dimensions if available, otherwise calculate from walls
+        const width = data.metadata?.width ?? (maxX - minX);
+        const height = data.metadata?.height ?? (maxY - minY);
+        const startPoint = { x: minX, y: minY };
+
+        const room = new RoomObject(
+            data.id,
+            startPoint,
+            width,
+            height,
+            data.wallIds,
+            graph
+        );
+
+        // Apply additional properties
+        if (data.name) room.setName(data.name);
+        if (data.color) room.setColor(data.color);
+
+        return room;
+    }
+
+    // Add new method for setting color
+    setColor(color: string): void {
+        this.styles.normal.fill = color;
+        if (this.roomShape) {
+            const style = this._isSelected ? this.styles.selected :
+                         this._isHighlighted ? this.styles.highlighted :
+                         this.styles.normal;
+            this.roomShape.fill(style.fill);
+            this.roomGroup?.getLayer()?.batchDraw();
         }
     }
 } 

@@ -4,6 +4,8 @@ import type { IEventManager } from '../../core/interfaces/IEventManager';
 import type { ILogger } from '../../core/interfaces/ILogger';
 import type { IConfigManager } from '../../core/interfaces/IConfig';
 import { StorageMenu } from './components/StorageMenu';
+import { StoragePlugin } from './index';
+import { CanvasStore } from '../../store/CanvasStore';
 
 @TopbarItem({
     id: 'storage',
@@ -20,6 +22,8 @@ export class StorageTopbarItem implements ITopbarItem {
     declare readonly id: string;
     declare readonly manifest: ITopbarManifest;
     private menu: StorageMenu;
+    private storagePlugin: StoragePlugin;
+    private canvasStore: CanvasStore;
 
     constructor(
         private readonly eventManager: IEventManager,
@@ -27,9 +31,13 @@ export class StorageTopbarItem implements ITopbarItem {
         private readonly configManager: IConfigManager
     ) {
         this.menu = new StorageMenu(eventManager, logger);
+        this.storagePlugin = new StoragePlugin(eventManager, logger, configManager);
+        this.canvasStore = CanvasStore.getInstance(eventManager, logger);
     }
 
-    initialize(): void {
+    async initialize(): Promise<void> {
+        await this.storagePlugin.initialize();
+        
         this.eventManager.on('storage:menu:new', this.handleNewProject.bind(this));
         this.eventManager.on('storage:menu:open', this.handleOpenProject.bind(this));
         this.eventManager.on('storage:menu:save', this.handleSaveProject.bind(this));
@@ -40,31 +48,27 @@ export class StorageTopbarItem implements ITopbarItem {
     }
 
     private async handleNewProject(): Promise<void> {
-        this.logger.info('Creating new project...');
-        // TODO: Implementar
+        await this.storagePlugin.handleNewProject();
     }
 
     private async handleOpenProject(): Promise<void> {
-        this.logger.info('Opening project...');
-        // TODO: Implementar
+        await this.storagePlugin.handleOpenProject();
     }
 
     private async handleSaveProject(): Promise<void> {
-        this.logger.info('Saving project...');
-        // TODO: Implementar
+        await this.storagePlugin.handleSaveProject();
     }
 
     private async handleExport(): Promise<void> {
-        this.logger.info('Exporting project...');
-        // TODO: Implementar
+        await this.storagePlugin.handleExport();
     }
 
     private async handleImport(): Promise<void> {
-        this.logger.info('Importing project...');
-        // TODO: Implementar
+        await this.storagePlugin.handleImport();
     }
 
-    dispose(): void {
+    async dispose(): Promise<void> {
+        await this.storagePlugin.dispose();
         this.menu.dispose();
     }
 } 

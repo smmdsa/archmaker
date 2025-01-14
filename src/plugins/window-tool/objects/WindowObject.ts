@@ -1,4 +1,4 @@
-import { BaseObject } from '../../../core/objects/BaseObject';
+import { BaseObject, BaseObjectData } from '../../../core/objects/BaseObject';
 import { ISelectableObject, SelectableObjectType } from '../../../core/interfaces/ISelectableObject';
 import { Layer } from 'konva/lib/Layer';
 import { Point } from '../../../core/types/geometry';
@@ -11,9 +11,24 @@ import { v4 as uuidv4 } from 'uuid';
 import { NodeObject } from '../../wall-tool/objects/NodeObject';
 import { WallGraph } from '../../wall-tool/models/WallGraph';
 import { WallObject } from '../../wall-tool/objects/WallObject';
+import { WindowData as StorageWindowData } from '../../../core/storage/interfaces';
 import { WindowData, WindowProperties } from '../types/window';
 
-export class WindowObject extends BaseObject implements ISelectableObject {
+export interface SerializedWindowData extends BaseObjectData {
+    wallId: string;
+    position: Point;
+    angle: number;
+    startNodeId: string;
+    endNodeId: string;
+    properties: WindowProperties;
+    isFlipped: boolean;
+    connectedNodes: {
+        startWallNodeId?: string;
+        endWallNodeId?: string;
+    };
+}
+
+export class WindowObject extends BaseObject {
     // Konva elements for rendering
     private group?: Group;
     private windowLine?: Line;
@@ -527,5 +542,133 @@ export class WindowObject extends BaseObject implements ISelectableObject {
 
         // Update window position and geometry
         this.updateWindowPosition();
+    }
+
+    toJSON(): SerializedWindowData {
+        return {
+            ...super.toJSON(),
+            wallId: this.data.wallId,
+            position: this.data.position,
+            angle: this.data.angle,
+            startNodeId: this.data.startNodeId,
+            endNodeId: this.data.endNodeId,
+            properties: {
+                ...this.data.properties
+            },
+            isFlipped: this.data.isFlipped,
+            connectedNodes: {
+                ...this.data.connectedNodes
+            }
+        };
+    }
+
+    fromJSON(data: SerializedWindowData): void {
+        super.fromJSON(data);
+        this.data = {
+            ...this.data,
+            wallId: data.wallId,
+            position: data.position,
+            angle: data.angle,
+            startNodeId: data.startNodeId,
+            endNodeId: data.endNodeId,
+            properties: {
+                ...data.properties
+            },
+            isFlipped: data.isFlipped,
+            connectedNodes: {
+                ...data.connectedNodes
+            }
+        };
+
+        // Update visual styles
+        this.styles.normal.stroke = this.data.properties.color;
+        this.styles.normal.fill = this.data.properties.color;
+
+        // Update geometry and visuals
+        this.updateGeometry();
+        this.updateVisualStyle();
+        this.updateLabel();
+    }
+
+    // Convert to storage format
+    toStorageData(): StorageWindowData {
+        return {
+            id: this.id,
+            wallId: this.data.wallId,
+            position: this.getRelativePosition(),
+            width: this.data.properties.width,
+            height: this.data.properties.height,
+            sillHeight: this.data.properties.sillHeight || 100,
+            style: 'default',
+            metadata: {
+                isOpen: this.data.properties.isOpen,
+                color: this.data.properties.color,
+                label: this.data.properties.label,
+                windowNumber: this._windowNumber
+            }
+        };
+    }
+
+    private getRelativePosition(): number {
+        const wall = this.wallGraph.getWall(this.data.wallId);
+        if (!wall) {
+            throw new Error(`Wall not found: ${this.data.wallId}`);
+        }
+
+        const startPoint = wall.getData().startPoint;
+        const endPoint = wall.getData().endPoint;
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const wallLength = Math.sqrt(dx * dx + dy * dy);
+
+        // Calculate relative position (0-1) along the wall
+        const windowDx = this.data.position.x - startPoint.x;
+        const windowDy = this.data.position.y - startPoint.y;
+        const windowProjection = (windowDx * dx + windowDy * dy) / wallLength;
+
+        return windowProjection / wallLength;
+    }
+
+    // Create from storage format
+    static fromStorageData(data: StorageWindowData, wallGraph: WallGraph): WindowObject {
+        const wall = wallGraph.getWall(data.wallId);
+        if (!wall) {
+            throw new Error(`Wall not found: ${data.wallId}`);
+        }
+
+        // Calculate actual position from relative position
+        const startPoint = wall.getData().startPoint;
+        const endPoint = wall.getData().endPoint;
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const position = {
+            x: startPoint.x + dx * data.position,
+            y: startPoint.y + dy * data.position
+        };
+
+        const window = new WindowObject({
+            wallId: data.wallId,
+            position,
+            angle: 0,
+            startNodeId: '',
+            endNodeId: '',
+            properties: {
+                width: data.width,
+                height: data.height,
+                sillHeight: data.sillHeight,
+                color: data.metadata?.color || '#FF69B4',
+                isOpen: data.metadata?.isOpen || false,
+                openDirection: 'left',
+                label: data.metadata?.label || ''
+            },
+            isFlipped: false,
+            connectedNodes: {}
+        }, wallGraph);
+
+        if (data.metadata?.windowNumber) {
+            window.setWindowNumber(data.metadata.windowNumber);
+        }
+
+        return window;
     }
 } 
