@@ -16,7 +16,7 @@ const toolManifest = {
     icon: '🗑️',
     tooltip: 'Remove selected objects (Del)',
     section: 'edit',
-    order: 4,
+    order: 10,
     shortcut: 'Delete'
 };
 
@@ -28,7 +28,7 @@ const toolManifest = {
     icon: '🗑️',
     tooltip: 'Remove selected objects (Del)',
     section: 'edit',
-    order: 4,
+    order: 10,
     shortcut: 'Delete'
 })
 export class RemoveTool extends BaseTool {
