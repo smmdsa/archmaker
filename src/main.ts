@@ -12,6 +12,7 @@ import { ProjectStore } from './store/ProjectStore';
 import { Canvas2D } from './components/Canvas2D';
 import { StoreService } from './store/StoreService';
 import { DrawingManager } from './core/drawing/DrawingManager';
+import { Viewer3D } from './scenes/Viewer3D';
 
 // Importar plugins (solo para registro)
 // Herramientas
@@ -60,10 +61,20 @@ async function initializeApp() {
         toolbar.id = 'toolbar';
         mainContent.appendChild(toolbar);
 
-        // Crear contenedor del editor
+        // Crear contenedor del editor y visor 3D
+        const editorContainer = document.createElement('div');
+        editorContainer.id = 'editor-container';
+        mainContent.appendChild(editorContainer);
+
+        // Crear contenedor del editor 2D
         const editor = document.createElement('div');
         editor.id = 'editor';
-        mainContent.appendChild(editor);
+        editorContainer.appendChild(editor);
+
+        // Crear contenedor del visor 3D
+        const viewer3D = document.createElement('div');
+        viewer3D.id = 'viewer-3d';
+        editorContainer.appendChild(viewer3D);
 
         // Crear contenedor del panel de propiedades
         const propertiesPanel = document.createElement('div');
@@ -83,10 +94,11 @@ async function initializeApp() {
         await configManager.initialize();
         logger.info('Config Manager initialized');
 
-        // Inicializar store
+        // Initialize store
         logger.info('Initializing store services...');
         const storeService = new StoreService();
         await storeService.initialize();
+        storeService.setDependencies(eventManager, logger);
         const projectStore = new ProjectStore(eventManager, logger, configManager);
         logger.info('Store services initialized');
 
@@ -152,6 +164,15 @@ async function initializeApp() {
         logger.info('Initializing Canvas2D component...');
         new Canvas2D('editor', eventManager, logger);
         logger.info('Canvas2D component initialized');
+
+        // Initialize Viewer3D
+        logger.info('Initializing Viewer3D component...');
+        const viewer3dContainer = document.getElementById('viewer-3d');
+        if (!viewer3dContainer) {
+            throw new Error('Viewer3D container not found');
+        }
+        new Viewer3D(viewer3dContainer, storeService.getCanvasStore(), eventManager);
+        logger.info('Viewer3D component initialized');
 
         logger.info('Application initialized successfully');
         
