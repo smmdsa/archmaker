@@ -82,6 +82,21 @@ export class Canvas2D {
         this.setupPanHandling();
         this.drawGrid();
         window.addEventListener('resize', this.handleResize);
+
+        // Add keyboard event listener for ESC key to reset zoom
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                // Reset zoom to original scale (1)
+                this.stage.scale({ x: 1, y: 1 });
+                this.stage.position({ x: 0, y: 0 });
+                this.stage.batchDraw();
+                
+                this.logger.info('Canvas: Reset zoom and position to default', {
+                    scale: this.stage.scaleX(),
+                    position: this.stage.position()
+                });
+            }
+        });
     }
 
     private setupEventListeners(): void {
