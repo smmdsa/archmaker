@@ -10,6 +10,16 @@ export class Canvas2D {
     private tempLayer: Konva.Layer;
     private gridLayer: Konva.Layer;
     private readonly canvasStore: CanvasStore;
+    
+    // Add zoom control properties
+    private minZoom = 0.1;
+    private maxZoom = 5;
+    private zoomFactor = 1.1;
+    private currentZoom = 1;
+    
+    // Add panning control
+    private isPanning = false;
+    private lastPointerPosition: Point | null = null;
 
     constructor(
         containerId: string,
@@ -67,13 +77,10 @@ export class Canvas2D {
     }
 
     private initialize(): void {
-        // Set up canvas events
         this.setupEventListeners();
-
-        // Draw initial grid
+        this.setupZoomHandling();
+        this.setupPanHandling();
         this.drawGrid();
-
-        // Handle window resizing
         window.addEventListener('resize', this.handleResize);
     }
 
@@ -106,6 +113,119 @@ export class Canvas2D {
         });
     }
 
+    private setupZoomHandling(): void {
+        this.stage.on('wheel', (e) => {
+            e.evt.preventDefault();
+            
+            const oldScale = this.stage.scaleX();
+            const pointer = this.stage.getPointerPosition();
+            
+            if (!pointer) return;
+            
+            const mousePointTo = {
+                x: (pointer.x - this.stage.x()) / oldScale,
+                y: (pointer.y - this.stage.y()) / oldScale,
+            };
+            
+            // Calculate new scale
+            let newScale = e.evt.deltaY < 0 ? oldScale * this.zoomFactor : oldScale / this.zoomFactor;
+            
+            // Enforce zoom limits
+            newScale = Math.max(this.minZoom, Math.min(this.maxZoom, newScale));
+            
+            // Skip if no scale change
+            if (newScale === oldScale) return;
+            
+            this.currentZoom = newScale;
+            
+            // Calculate new position
+            const newPos = {
+                x: pointer.x - mousePointTo.x * newScale,
+                y: pointer.y - mousePointTo.y * newScale,
+            };
+            
+            // Apply new scale and position
+            this.stage.scale({ x: newScale, y: newScale });
+            this.stage.position(newPos);
+            this.stage.batchDraw();
+            
+            // Update grid to maintain consistent spacing
+            this.drawGrid();
+            
+            // Emit zoom event for other components
+            this.eventManager.emit('canvas:zoom', {
+                scale: newScale,
+                position: newPos,
+                pointer: pointer
+            });
+        });
+    }
+
+    private setupPanHandling(): void {
+        // Prevent context menu on right click
+        this.stage.container().addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        // Start panning on right mouse button down
+        this.stage.on('mousedown', (e) => {
+            // Check if it's right mouse button (button === 2)
+            if (e.evt.button === 2) {
+                e.evt.preventDefault();
+                this.isPanning = true;
+                this.lastPointerPosition = this.stage.getPointerPosition();
+                // Change cursor to indicate panning
+                document.body.style.cursor = 'grabbing';
+            }
+        });
+
+        // Handle panning movement
+        this.stage.on('mousemove', (e) => {
+            if (!this.isPanning || !this.lastPointerPosition) return;
+
+            const newPointerPosition = this.stage.getPointerPosition();
+            if (!newPointerPosition) return;
+
+            // Calculate the distance moved
+            const dx = newPointerPosition.x - this.lastPointerPosition.x;
+            const dy = newPointerPosition.y - this.lastPointerPosition.y;
+
+            // Update stage position
+            this.stage.position({
+                x: this.stage.x() + dx,
+                y: this.stage.y() + dy
+            });
+            this.stage.batchDraw();
+
+            // Update grid
+            this.drawGrid();
+
+            // Store new position
+            this.lastPointerPosition = newPointerPosition;
+
+            // Emit pan event
+            this.eventManager.emit('canvas:pan', {
+                position: this.stage.position(),
+                delta: { x: dx, y: dy }
+            });
+        });
+
+        // Stop panning on mouse up or leave
+        const stopPanning = () => {
+            this.isPanning = false;
+            this.lastPointerPosition = null;
+            document.body.style.cursor = 'default';
+        };
+
+        this.stage.on('mouseup', (e) => {
+            if (e.evt.button === 2) {
+                stopPanning();
+            }
+        });
+
+        this.stage.on('mouseleave', stopPanning);
+    }
+
     private handleResize = (): void => {
         const container = this.stage.container();
         const width = container.clientWidth;
@@ -119,25 +239,33 @@ export class Canvas2D {
     private drawGrid(): void {
         const width = this.stage.width();
         const height = this.stage.height();
-        const spacing = 20;
+        const spacing = 20 * this.currentZoom;
 
         this.gridLayer.destroyChildren();
 
+        // Adjust grid based on zoom level
+        const stageRect = {
+            x: -this.stage.x() / this.currentZoom,
+            y: -this.stage.y() / this.currentZoom,
+            width: width / this.currentZoom,
+            height: height / this.currentZoom
+        };
+
         // Vertical lines
-        for (let x = 0; x < width; x += spacing) {
+        for (let x = Math.floor(stageRect.x / spacing) * spacing; x < stageRect.x + stageRect.width; x += spacing) {
             this.gridLayer.add(new Konva.Line({
-                points: [x, 0, x, height],
+                points: [x, stageRect.y, x, stageRect.y + stageRect.height],
                 stroke: '#ddd',
-                strokeWidth: 1
+                strokeWidth: 1 / this.currentZoom
             }));
         }
 
         // Horizontal lines
-        for (let y = 0; y < height; y += spacing) {
+        for (let y = Math.floor(stageRect.y / spacing) * spacing; y < stageRect.y + stageRect.height; y += spacing) {
             this.gridLayer.add(new Konva.Line({
-                points: [0, y, width, y],
+                points: [stageRect.x, y, stageRect.x + stageRect.width, y],
                 stroke: '#ddd',
-                strokeWidth: 1
+                strokeWidth: 1 / this.currentZoom
             }));
         }
 
@@ -150,9 +278,17 @@ export class Canvas2D {
             return { x: 0, y: 0 };
         }
 
+        // Get the current transform of the stage
+        const transform = {
+            x: this.stage.x(),
+            y: this.stage.y(),
+            scale: this.stage.scaleX()
+        };
+
+        // Calculate the actual position in the scaled and transformed space
         return {
-            x: pos.x,
-            y: pos.y
+            x: (pos.x - transform.x) / transform.scale,
+            y: (pos.y - transform.y) / transform.scale
         };
     }
 
@@ -171,5 +307,44 @@ export class Canvas2D {
 
     getTempLayer(): Konva.Layer {
         return this.tempLayer;
+    }
+
+    getZoom(): number {
+        return this.currentZoom;
+    }
+
+    setZoom(zoom: number, center?: Point): void {
+        const oldScale = this.stage.scaleX();
+        let newScale = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+        
+        if (newScale === oldScale) return;
+        
+        const pointer = center || {
+            x: this.stage.width() / 2,
+            y: this.stage.height() / 2
+        };
+        
+        const mousePointTo = {
+            x: (pointer.x - this.stage.x()) / oldScale,
+            y: (pointer.y - this.stage.y()) / oldScale,
+        };
+        
+        const newPos = {
+            x: pointer.x - mousePointTo.x * newScale,
+            y: pointer.y - mousePointTo.y * newScale,
+        };
+        
+        this.currentZoom = newScale;
+        this.stage.scale({ x: newScale, y: newScale });
+        this.stage.position(newPos);
+        this.stage.batchDraw();
+        
+        this.drawGrid();
+        
+        this.eventManager.emit('canvas:zoom', {
+            scale: newScale,
+            position: newPos,
+            pointer: pointer
+        });
     }
 } 
