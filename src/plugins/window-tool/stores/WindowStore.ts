@@ -29,4 +29,11 @@ export class WindowStore {
     public getAllWindows(): WindowObject[] {
         return Array.from(this.windows.values());
     }
+
+    public clear(): void {
+        const windowIds = Array.from(this.windows.keys());
+        windowIds.forEach(id => this.removeWindow(id));
+        this.windows.clear();
+        this.logger.info('All windows cleared');
+    }
 } 

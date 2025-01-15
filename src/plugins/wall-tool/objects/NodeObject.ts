@@ -2,19 +2,18 @@ import { BaseObject } from '../../../core/objects/BaseObject';
 import { SelectableObjectType } from '../../../core/interfaces/ISelectableObject';
 import { Point } from '../../../core/types/geometry';
 
-
-interface NodeData {
+export interface NodeData {
+    id: string;
+    position: Point;
     connectedWallIds: string[];
     radius: number;
     isMovable: boolean;
 }
 
 export class NodeObject extends BaseObject {
-    
     private readonly connectedWallIds: Set<string> = new Set();
     private readonly radius: number;
     private readonly isMovable: boolean;
-
 
     constructor(
         id: string,
@@ -41,16 +40,13 @@ export class NodeObject extends BaseObject {
         this.isMovable = isMovable;
     }
 
+    // Required methods from BaseObject
     render(layer: any): void {
-        throw new Error('Method not implemented.');
+        // Rendering is now handled by Canvas2D
     }
 
     getData(): NodeData {
-        return {
-            connectedWallIds: Array.from(this.connectedWallIds),
-            radius: this.radius,
-            isMovable: this.isMovable
-        };
+        return this.toStorageData();
     }
 
     // Node-specific methods
@@ -79,8 +75,6 @@ export class NodeObject extends BaseObject {
             width: this.radius * 2,
             height: this.radius * 2
         };
-        // Update visual if exists
-   
     }
 
     // Override containsPoint for precise circle hit detection
@@ -89,22 +83,6 @@ export class NodeObject extends BaseObject {
         const dy = point.y - this.position.y;
         const offset = 10; // Increase size by 10 units
         return (dx * dx + dy * dy) <= ((this.radius + offset) * (this.radius + offset));
-    }
-
-    // Override setSelected to force re-render
-    setSelected(selected: boolean): void {
-        if (this._isSelected !== selected) {
-            super.setSelected(selected);
-
-        }
-    }
-
-    // Override setHighlighted to force re-render
-    setHighlighted(highlighted: boolean): void {
-        if (this._isHighlighted !== highlighted) {
-            super.setHighlighted(highlighted);
-
-        }
     }
 
     // Convert to storage format
@@ -118,7 +96,7 @@ export class NodeObject extends BaseObject {
         };
     }
 
-    // Create from storage format
+    // Create from storage data
     static fromStorageData(data: NodeData): NodeObject {
         const node = new NodeObject(
             data.id,

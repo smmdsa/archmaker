@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "id": "900d4f11-099b-4fa8-b608-dd69c8dbcd82",
+    "name": "New Project",
+    "version": "2.0.0",
+    "created": "2025-01-15T08:08:40.143Z",
+    "lastModified": "2025-01-15T08:08:58.289Z"
+  },
+  "settings": {
+    "units": "cm",
+    "gridSize": 20,
+    "snapToGrid": true,
+    "defaultWallHeight": 280,
+    "defaultWallThickness": 10
+  },
+  "scene": {
+    "walls": [
+      {
+        "id": "ebcb4ce4-801a-460a-b51c-d5e2151db75f",
+        "startPoint": {
+          "x": -748.2114246697529,
+          "y": -239.67161948873553
+        },
+        "endPoint": {
+          "x": -232.90082604557398,
+          "y": 8.633551027060093
+        },
+        "height": 280,
+        "thickness": 10
+      }
+    ],
+    "doors": [
+      {
+        "id": "4a1586d8-4f38-4ce7-bf1d-96ca6eaee22e",
+        "wallId": "ebcb4ce4-801a-460a-b51c-d5e2151db75f",
+        "position": {
+          "x": -608.4796411644738,
+          "y": -172.34111159235366
+        },
+        "angle": 0.449026810227028,
+        "isFlipped": false,
+        "properties": {
+          "width": 100,
+          "color": "#8B4513",
+          "isOpen": false,
+          "openDirection": "left"
+        }
+      }
+    ],
+    "windows": [
+      {
+        "id": "497dabb3-6c57-45d6-beaa-ba81d092d87c",
+        "wallId": "ebcb4ce4-801a-460a-b51c-d5e2151db75f",
+        "position": {
+          "x": -457.7060376552413,
+          "y": -99.6900436178237
+        },
+        "angle": 0.449026810227028,
+        "isFlipped": false,
+        "properties": {
+          "width": 100,
+          "height": 150,
+          "color": "#FF69B4",
+          "isOpen": false,
+          "openDirection": "left"
+        }
+      }
+    ],
+    "rooms": []
+  },
+  "viewer": {
+    "camera": {
+      "position": {
+        "x": 500,
+        "y": 500,
+        "z": 500
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "zoom": 1
+    },
+    "showGrid": true,
+    "showAxes": true,
+    "showGround": true
+  }
+}

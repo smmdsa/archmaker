@@ -309,84 +309,62 @@ export class StoragePlugin implements IPlugin {
     }
 
     public async handleOpenProject(): Promise<void> {
-        this.logger.info('Opening project selector...');
-        
         try {
-            // Get list of available projects
             const projects = await this.storageService.listProjects();
-            
             if (projects.length === 0) {
                 await this.showDialog(
                     'No Projects',
-                    'No saved projects found.',
+                    'No saved projects found. Create a new project first.',
                     [{ label: 'OK', value: null }]
                 );
                 return;
             }
 
-            // Create project selection dialog
             const projectList = projects.map(p => `${p.name} (Last modified: ${p.lastModified.toLocaleString()})`);
-            const selectedIndex = await this.showProjectSelector('Select a project to open:', projectList);
+            const selectedIndex = await this.showProjectSelector('Open Project', projectList);
             
-            if (selectedIndex === null) return;
-
-            // Confirm if there are unsaved changes
-            if (await this.hasUnsavedChanges()) {
-                const confirmed = await this.showDialog(
-                    'Unsaved Changes',
-                    'You have unsaved changes. Are you sure you want to open another project?',
-                    [
-                        { label: 'Cancel', value: false },
-                        { label: 'Continue', value: true }
-                    ]
-                );
-                if (!confirmed) return;
+            if (selectedIndex !== null) {
+                const project = projects[selectedIndex];
+                const projectData = await this.storageService.loadProject(project.path);
+                
+                // Clear current project and load new one
+                this.canvasStore.clear();
+                this.canvasStore.deserialize(projectData);
+                
+                this.logger.info('Project opened successfully', { projectId: projectData.metadata.id });
+                await this.eventManager.emit('project:opened', { projectId: projectData.metadata.id });
             }
-
-            // Load selected project
-            const projectData = await this.storageService.loadProject(projects[selectedIndex].path);
-            this.canvasStore.deserialize(projectData);
-
-            this.eventManager.emit('project:opened', {
-                projectId: projectData.metadata.id
-            });
         } catch (error) {
             this.logger.error('Failed to open project', error as Error);
             await this.showDialog(
                 'Error',
-                'Failed to open project: ' + (error as Error).message,
+                `Failed to open project: ${(error as Error).message}`,
                 [{ label: 'OK', value: null }]
             );
         }
     }
 
     public async handleSaveProject(): Promise<void> {
-        this.logger.info('Saving current project...');
-        
         try {
             // Get current project data
             const projectData = this.canvasStore.serialize();
             
             // Save project
-            await this.storageService.saveProject(projectData, {
-                format: 'json',
-                pretty: true
-            });
-
-            this.eventManager.emit('project:saved', {
-                projectId: projectData.metadata.id
-            });
-
+            const key = await this.storageService.saveProject(projectData);
+            
+            this.logger.info('Project saved successfully', { projectId: projectData.metadata.id });
+            await this.eventManager.emit('project:saved', { projectId: projectData.metadata.id });
+            
             await this.showDialog(
                 'Success',
-                'Project saved successfully!',
+                'Project saved successfully',
                 [{ label: 'OK', value: null }]
             );
         } catch (error) {
             this.logger.error('Failed to save project', error as Error);
             await this.showDialog(
                 'Error',
-                'Failed to save project: ' + (error as Error).message,
+                `Failed to save project: ${(error as Error).message}`,
                 [{ label: 'OK', value: null }]
             );
         }

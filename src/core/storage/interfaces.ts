@@ -55,8 +55,6 @@ export interface ProjectMetadata {
     version: string;
     created: string;
     lastModified: string;
-    author?: string;
-    description?: string;
 }
 
 /**
@@ -132,17 +130,11 @@ export interface RoomData {
  * Project settings
  */
 export interface ProjectSettings {
-    scale: number;
     units: string;
     gridSize: number;
     snapToGrid: boolean;
     defaultWallHeight: number;
     defaultWallThickness: number;
-    defaultDoorHeight: number;
-    defaultDoorWidth: number;
-    defaultWindowHeight: number;
-    defaultWindowWidth: number;
-    defaultWindowSillHeight: number;
 }
 
 /**
@@ -151,11 +143,62 @@ export interface ProjectSettings {
 export interface ProjectData {
     metadata: ProjectMetadata;
     settings: ProjectSettings;
-    canvas: {
-        nodes: NodeData[];
-        walls: WallData[];
-        doors: DoorData[];
-        windows: WindowData[];
-        rooms: RoomData[];
-    };
+    scene: SceneData;
+    viewer: ViewerSettings;
+}
+
+export interface SceneData {
+    walls: Array<{
+        id: string;
+        startPoint: { x: number; y: number };
+        endPoint: { x: number; y: number };
+        height: number;
+        thickness: number;
+    }>;
+    doors: Array<{
+        id: string;
+        wallId: string;
+        position: { x: number; y: number };
+        angle: number;
+        isFlipped: boolean;
+        properties: {
+            width: number;
+            color: string;
+            isOpen: boolean;
+            openDirection: 'left' | 'right';
+        };
+    }>;
+    windows: Array<{
+        id: string;
+        wallId: string;
+        position: { x: number; y: number };
+        angle: number;
+        isFlipped: boolean;
+        properties: {
+            width: number;
+            height: number;
+            color: string;
+            isOpen: boolean;
+            openDirection: 'left' | 'right';
+        };
+    }>;
+    rooms: Array<{
+        id: string;
+        name: string;
+        area: number;
+        wallIds: string[];
+    }>;
+}
+
+export interface CameraSettings {
+    position: { x: number; y: number; z: number };
+    target: { x: number; y: number; z: number };
+    zoom: number;
+}
+
+export interface ViewerSettings {
+    camera: CameraSettings;
+    showGrid: boolean;
+    showAxes: boolean;
+    showGround: boolean;
 } 

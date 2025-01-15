@@ -105,7 +105,28 @@ export class LocalStorageService implements IStorageService {
                     lastModified: new Date().toISOString()
                 },
                 settings: data.settings,
-                canvas: { walls: [], doors: [], windows: [], rooms: [] }
+                scene: {
+                    walls: data.scene.walls.map(wall => ({
+                        id: wall.id,
+                        startPoint: wall.startPoint,
+                        endPoint: wall.endPoint
+                    })),
+                    doors: data.scene.doors.map(door => ({
+                        id: door.id,
+                        wallId: door.wallId,
+                        position: door.position
+                    })),
+                    windows: data.scene.windows.map(window => ({
+                        id: window.id,
+                        wallId: window.wallId,
+                        position: window.position
+                    })),
+                    rooms: data.scene.rooms.map(room => ({
+                        id: room.id,
+                        name: room.name,
+                        area: room.area
+                    }))
+                }
             };
             localStorage.setItem(`${key}_meta`, this.jsonWriter.write(metadata));
 

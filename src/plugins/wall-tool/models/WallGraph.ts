@@ -18,6 +18,7 @@ export class WallGraph {
         const node = new NodeObject(id, position);
         this.nodes.set(id, node);
         
+        this.eventManager.emit('node:created', { node });
         this.eventManager.emit('graph:changed', {
             nodeCount: this.nodes.size,
             wallCount: this.walls.size,
@@ -45,6 +46,7 @@ export class WallGraph {
 
         this.nodes.delete(id);
         
+        this.eventManager.emit('node:deleted', { nodeId: id });
         this.eventManager.emit('graph:changed', {
             nodeCount: this.nodes.size,
             wallCount: this.walls.size,
@@ -53,7 +55,7 @@ export class WallGraph {
     }
 
     // Wall methods
-    createWall(startNodeId: string, endNodeId: string): WallObject | null {
+    createWall(startNodeId: string, endNodeId: string, thickness: number = 10, height: number = 280): WallObject | null {
         const startNode = this.nodes.get(startNodeId);
         const endNode = this.nodes.get(endNodeId);
         
@@ -66,7 +68,9 @@ export class WallGraph {
             endNodeId,
             startNode.position,
             endNode.position,
-            this.eventManager
+            this.eventManager,
+            thickness,
+            height
         );
 
         this.walls.set(id, wall);
@@ -93,8 +97,22 @@ export class WallGraph {
         const startNode = this.nodes.get(startNodeId);
         const endNode = this.nodes.get(endNodeId);
         
-        startNode?.addConnectedWall(wall.id);
-        endNode?.addConnectedWall(wall.id);
+        if (!startNode || !endNode) {
+            // Create nodes if they don't exist
+            if (!startNode) {
+                const newStartNode = new NodeObject(startNodeId, wall.getData().startPoint);
+                this.addNode(newStartNode);
+                newStartNode.addConnectedWall(wall.id);
+            }
+            if (!endNode) {
+                const newEndNode = new NodeObject(endNodeId, wall.getData().endPoint);
+                this.addNode(newEndNode);
+                newEndNode.addConnectedWall(wall.id);
+            }
+        } else {
+            startNode.addConnectedWall(wall.id);
+            endNode.addConnectedWall(wall.id);
+        }
 
         this.eventManager.emit('wall:created', { wall });
         this.eventManager.emit('graph:changed', {
@@ -207,7 +225,12 @@ export class WallGraph {
     // Node management
     addNode(node: NodeObject): void {
         this.nodes.set(node.id, node);
-        this.eventManager?.emit('node:created', { node });
+        this.eventManager.emit('node:created', { node });
+        this.eventManager.emit('graph:changed', {
+            nodeCount: this.nodes.size,
+            wallCount: this.walls.size,
+            roomCount: this.rooms.size
+        });
     }
 
     // Clear all objects
@@ -216,7 +239,7 @@ export class WallGraph {
         this.nodes.clear();
         this.walls.clear();
         this.rooms.clear();
-        this.eventManager?.emit('graph:changed', {
+        this.eventManager.emit('graph:changed', {
             nodeCount: 0,
             wallCount: 0,
             roomCount: 0

@@ -637,41 +637,41 @@ export class Canvas2D {
     }
 
     private createNodeObject(node: any): THREE.Object3D {
-        const data = node.getData();
-        const pos = node.position;
-        const radius = data.radius || 5;
-        const isMovable = data.isMovable ?? true;
-
-        // Get colors from NodeObject styles
-        const style = isMovable ? {
-            fill: '#ffffff',
-            stroke: '#000000'
-        } : {
-            fill: '#ffffff', 
-            stroke: '#000000'
-        };
+        // Get node position from the node object
+        const pos = { x: node.position.x, y: node.position.y };
+        const radius = 5;
+        const isSelected = node.isSelected;
+        const isHighlighted = node.isHighlighted;
 
         // Create node circle
-        const geometry = new THREE.CircleGeometry(radius+3, 32);
+        const geometry = new THREE.CircleGeometry(radius, 32);
         const material = new THREE.MeshBasicMaterial({ 
-            color: new THREE.Color(style.fill)
+            color: isHighlighted ? 0x0088ff : 0xffffff
         });
         const circle = new THREE.Mesh(geometry, material);
-        circle.position.set(pos.x, pos.y, 0);
+        circle.position.set(pos.x, pos.y, 2); // Place nodes above walls
 
         // Create outline using EdgesGeometry for proper outline
         const outlineGeometry = new THREE.EdgesGeometry(geometry);
         const outlineMaterial = new THREE.LineBasicMaterial({ 
-            color: new THREE.Color(style.stroke),
-            linewidth: 2
+            color: isSelected ? 0x0088ff : 0x000000,
+            linewidth: isSelected ? 2 : 1
         });
         const outline = new THREE.Line(outlineGeometry, outlineMaterial);
-        outline.position.set(pos.x, pos.y, 0);
+        outline.position.set(pos.x, pos.y, 2);
 
         // Create group to hold both circle and outline
         const group = new THREE.Group();
         group.add(circle);
         group.add(outline);
+
+        // Add debug info
+        this.logger.info('Created node object:', {
+            id: node.id,
+            position: pos,
+            isSelected,
+            isHighlighted
+        });
 
         return group;
     }

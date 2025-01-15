@@ -1,0 +1,141 @@
+{
+  "metadata": {
+    "id": "273cb67b-25a6-488e-9be2-96ea4f107ba6",
+    "name": "Untitled Project",
+    "version": "2.0.0",
+    "created": "2025-01-15T08:04:26.225Z",
+    "lastModified": "2025-01-15T08:05:13.884Z"
+  },
+  "settings": {
+    "units": "cm",
+    "gridSize": 20,
+    "snapToGrid": true,
+    "defaultWallHeight": 280,
+    "defaultWallThickness": 10
+  },
+  "scene": {
+    "walls": [
+      {
+        "id": "7b058579-7420-4cac-916e-daab29389c7a",
+        "startPoint": {
+          "x": -749.9121197147173,
+          "y": -76.40246627286996
+        },
+        "endPoint": {
+          "x": -569.6384449485029,
+          "y": 131.08541593895924
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "8ddfaab8-02bb-42f5-b161-c8acdbf02e60",
+        "startPoint": {
+          "x": 154.8576442062835,
+          "y": 202.5156704709005
+        },
+        "endPoint": {
+          "x": -569.6384449485029,
+          "y": 131.08541593895924
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "c4d9eee5-e611-4d3d-b284-e2f37c5a5771",
+        "startPoint": {
+          "x": -683.58501296111,
+          "y": -146.13200045881248
+        },
+        "endPoint": {
+          "x": -749.9121197147173,
+          "y": -76.40246627286996
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "bd613dd1-d9ac-4fdc-9d06-5d3a4438444d",
+        "startPoint": {
+          "x": 154.8576442062835,
+          "y": 202.5156704709005
+        },
+        "endPoint": {
+          "x": 71.56307348837053,
+          "y": 0.6416385418602926
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "d42dcd21-fedc-4a27-ba7a-036b6757be4c",
+        "startPoint": {
+          "x": 71.56307348837053,
+          "y": 0.6416385418602926
+        },
+        "endPoint": {
+          "x": -683.58501296111,
+          "y": -146.13200045881248
+        },
+        "height": 280,
+        "thickness": 10
+      }
+    ],
+    "doors": [
+      {
+        "id": "babe34f0-279c-4ab7-a144-b8b984e18275",
+        "wallId": "8ddfaab8-02bb-42f5-b161-c8acdbf02e60",
+        "position": {
+          "x": -445.18832205636676,
+          "y": 143.3553289002388
+        },
+        "angle": -3.043317247719289,
+        "isFlipped": false,
+        "properties": {
+          "width": 100,
+          "color": "#8B4513",
+          "isOpen": false,
+          "openDirection": "left"
+        }
+      }
+    ],
+    "windows": [
+      {
+        "id": "8a21631c-1fa4-4f2b-a8ab-6abddf9fe609",
+        "wallId": "8ddfaab8-02bb-42f5-b161-c8acdbf02e60",
+        "position": {
+          "x": -91.69401952600222,
+          "y": 178.20739833624143
+        },
+        "angle": -3.043317247719289,
+        "isFlipped": false,
+        "properties": {
+          "width": 100,
+          "height": 150,
+          "color": "#FF69B4",
+          "isOpen": false,
+          "openDirection": "left"
+        }
+      }
+    ],
+    "rooms": []
+  },
+  "viewer": {
+    "camera": {
+      "position": {
+        "x": 500,
+        "y": 500,
+        "z": 500
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "zoom": 1
+    },
+    "showGrid": true,
+    "showAxes": true,
+    "showGround": true
+  }
+}
