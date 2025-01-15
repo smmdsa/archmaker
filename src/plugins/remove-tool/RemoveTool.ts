@@ -211,11 +211,6 @@ export class RemoveTool extends BaseTool {
                 windowCount: this.canvasStore.getWindowStore()?.getAllWindows().length || 0
             });
 
-            // Force canvas redraw
-            const layers = this.canvasStore.getLayers();
-            if (layers?.mainLayer) {
-                layers.mainLayer.batchDraw();
-            }
 
         } catch (error) {
             this.logger.error('Remove tool: Failed to remove objects', error instanceof Error ? error : new Error('Unknown error'));

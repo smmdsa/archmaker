@@ -1,6 +1,7 @@
 import { IEventManager } from '../core/interfaces/IEventManager';
 import { ILogger } from '../core/interfaces/ILogger';
 import { Point } from '../core/types/geometry';
+import { WindowObject } from '../plugins/window-tool/objects/WindowObject';
 import { CanvasStore } from '../store/CanvasStore';
 import * as THREE from 'three';
 
@@ -94,7 +95,7 @@ export class Canvas2D {
 
         // Initialize CanvasStore
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
-        this.canvasStore.setCanvas(this);
+        
         
         // Initial setup
         this.handleResize();
@@ -348,8 +349,8 @@ export class Canvas2D {
         this.logger.info('Current store state:', {
             walls: wallGraph.getAllWalls().length,
             doors: doorStore.getAllDoors().length,
-            windows: windowStore.getAllWindows().length,
-            nodes: wallGraph.getAllNodes().length
+            nodes: wallGraph.getAllNodes().length,
+            windows: windowStore.getAllWindows().length
         });
 
         // Draw walls
@@ -372,16 +373,6 @@ export class Canvas2D {
             });
         });
 
-        // Draw windows
-        windowStore.getAllWindows().forEach(window => {
-            const windowObj = this.createWindowObject(window);
-            this.windowsGroup.add(windowObj);
-            this.logger.info('Created window object:', {
-                id: window.id,
-                data: window.getData()
-            });
-        });
-
         // Draw nodes
         wallGraph.getAllNodes().forEach(node => {
             const nodeObj = this.createNodeObject(node);
@@ -389,6 +380,15 @@ export class Canvas2D {
             this.logger.info('Created node object:', {
                 id: node.id,
                 data: node.getData()
+            });
+        });
+
+        windowStore.getAllWindows().forEach(window => {
+            const windowObj = this.createWindowObject(window);
+            this.windowsGroup.add(windowObj);
+            this.logger.info('Created window object:', {
+                id: window.id,
+                data: window.getData()
             });
         });
 
@@ -456,68 +456,144 @@ export class Canvas2D {
         const angle = data.angle || 0;
 
         const group = new THREE.Group();
-        group.position.set(pos.x, pos.y, 0);
+        // Move door slightly forward in z-axis to appear above walls
+        group.position.set(pos.x, pos.y, 1);
         group.rotation.z = angle;
 
-        // Door frame
+        // Door frame - make it thicker
         const frameGeometry = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(-width/2, 0, 0),
             new THREE.Vector3(width/2, 0, 0)
         ]);
         const frameMaterial = new THREE.LineBasicMaterial({ 
-            color: door.isHighlighted() ? 0x0088ff : 0x8B4513,
-            linewidth: door.isSelected() ? 3 : 2
+            color: door._isHighlighted ? 0x0088ff : 0xff8c00,
+            linewidth: door._isSelected ? 8 : 6
         });
         const frame = new THREE.Line(frameGeometry, frameMaterial);
         group.add(frame);
 
         // Door swing arc
         const arcPoints: THREE.Vector3[] = [];
-        const radius = width/2;
+        const radius = width;  // Use full width for radius to match the reference
         const segments = 32;
         const startAngle = data.isFlipped ? 0 : -Math.PI/2;
         const endAngle = data.isFlipped ? Math.PI/2 : 0;
+        const arcOrigin = new THREE.Vector3(data.isFlipped ? width/2 : -width/2, 0, 0);
         
         for (let i = 0; i <= segments; i++) {
             const t = i / segments;
             const angle = startAngle + (endAngle - startAngle) * t;
-            const x = (data.isFlipped ? -width/2 : width/2) + radius * Math.cos(angle);
+            const x = arcOrigin.x + radius * Math.cos(angle);
             const y = radius * Math.sin(angle);
             arcPoints.push(new THREE.Vector3(x, y, 0));
         }
 
         const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
         const arcMaterial = new THREE.LineBasicMaterial({ 
-            color: door.isHighlighted() ? 0x0088ff : 0x8B4513,
-            linewidth: 1
+            color: door._isHighlighted ? 0x0088ff : 0xff8c00,
+            linewidth: 3
         });
         const arc = new THREE.Line(arcGeometry, arcMaterial);
         group.add(arc);
 
+        // Add larger door endpoints
+        const endpointGeometry = new THREE.CircleGeometry(10, 32);
+        const endpointMaterial = new THREE.MeshBasicMaterial({ 
+            color: door._isHighlighted ? 0x0088ff : 0xff8c00
+        });
+
+        // Left endpoint (A)
+        const leftEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+        leftEndpoint.position.set(-width/2, 0, 0);
+        group.add(leftEndpoint);
+
+        // Right endpoint (B)
+        const rightEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+        rightEndpoint.position.set(width/2, 0, 0);
+        group.add(rightEndpoint);
+
+        // Add outlines to endpoints
+        const endpointOutlineGeometry = new THREE.CircleGeometry(10, 32);
+        const endpointOutlineMaterial = new THREE.LineBasicMaterial({
+            color: 0x000000,
+            linewidth: 1
+        });
+
+        const leftEndpointOutline = new THREE.Line(new THREE.EdgesGeometry(endpointOutlineGeometry), endpointOutlineMaterial);
+        leftEndpointOutline.position.set(-width/2, 0, 0);
+        group.add(leftEndpointOutline);
+
+        const rightEndpointOutline = new THREE.Line(new THREE.EdgesGeometry(endpointOutlineGeometry), endpointOutlineMaterial);
+        rightEndpointOutline.position.set(width/2, 0, 0);
+        group.add(rightEndpointOutline);
+
+        // Add text labels above endpoints
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (context) {
+            canvas.width = 64;
+            canvas.height = 64;
+            context.font = 'bold 48px Arial';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillStyle = '#000000';
+
+            // Create label A for left endpoint
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.fillText('A', canvas.width/2, canvas.height/2);
+            const canvasA = canvas.cloneNode(true) as HTMLCanvasElement;
+            const contextA = canvasA.getContext('2d');
+            if (contextA) {
+                contextA.font = 'bold 48px Arial';
+                contextA.textAlign = 'center';
+                contextA.textBaseline = 'middle';
+                contextA.fillStyle = '#000000';
+                contextA.fillText('A', canvasA.width/2, canvasA.height/2);
+            }
+            const textureA = new THREE.CanvasTexture(canvasA);
+            const labelMaterialA = new THREE.SpriteMaterial({ map: textureA });
+            const labelA = new THREE.Sprite(labelMaterialA);
+            labelA.position.set(-width/2, 25, 0); // Position above left endpoint
+            labelA.scale.set(30, 30, 1);
+            group.add(labelA);
+
+            // Create label B for right endpoint
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.fillText('B', canvas.width/2, canvas.height/2);
+            const textureB = new THREE.CanvasTexture(canvas);
+            const labelMaterialB = new THREE.SpriteMaterial({ map: textureB });
+            const labelB = new THREE.Sprite(labelMaterialB);
+            labelB.position.set(width/2, 25, 0); // Position above right endpoint
+            labelB.scale.set(30, 30, 1);
+            group.add(labelB);
+        }
+
         return group;
     }
 
-    private createWindowObject(window: any): THREE.Object3D {
+    private createWindowObject(window: WindowObject): THREE.Object3D {
         const data = window.getData();
         const pos = data.position;
         const width = data.properties.width || 100;
+        const height = data.properties.height || 150;
         const angle = data.angle || 0;
 
         const group = new THREE.Group();
-        group.position.set(pos.x, pos.y, 0);
+        group.position.set(pos.x, pos.y, 1); // Move slightly forward to appear above walls
         group.rotation.z = angle;
 
         // Window frame
         const points: THREE.Vector3[] = [];
         const paneCount = 2;
         const paneWidth = width / paneCount;
+        const verticalExtent = height / 6;
 
         // Vertical lines
         for (let i = 0; i <= paneCount; i++) {
             const x = -width/2 + i * paneWidth;
             points.push(
-                new THREE.Vector3(x, -20, 0),
-                new THREE.Vector3(x, 20, 0)
+                new THREE.Vector3(x, -verticalExtent, 0),
+                new THREE.Vector3(x, verticalExtent, 0)
             );
         }
 
@@ -529,11 +605,27 @@ export class Canvas2D {
 
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
         const material = new THREE.LineBasicMaterial({ 
-            color: window.isHighlighted() ? 0x0088ff : 0x666666,
+            color: window.isHighlighted() ? 0x0088ff : 0xFF69B4,
             linewidth: window.isSelected() ? 3 : 2
         });
         const frame = new THREE.LineSegments(geometry, material);
         group.add(frame);
+
+        // Add endpoints
+        const endpointGeometry = new THREE.CircleGeometry(5, 32);
+        const endpointMaterial = new THREE.MeshBasicMaterial({ 
+            color: window.isHighlighted() ? 0x0088ff : 0xFF69B4
+        });
+
+        // Left endpoint
+        const leftEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+        leftEndpoint.position.set(-width/2, 0, 0);
+        group.add(leftEndpoint);
+
+        // Right endpoint
+        const rightEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+        rightEndpoint.position.set(width/2, 0, 0);
+        group.add(rightEndpoint);
 
         return group;
     }
@@ -682,8 +774,9 @@ export class Canvas2D {
     }
 
     public updatePreview(previewData: any): void {
+        // Clear previous preview
         this.previewGroup.clear();
-        
+
         if (!previewData) return;
 
         if (previewData.type === 'wall') {
@@ -733,84 +826,127 @@ export class Canvas2D {
             });
             const outline = new THREE.Line(outlineGeometry, outlineMaterial);
             this.previewGroup.add(outline);
-        } else if (previewData.type === 'node') {
-            const { position, connectedWalls } = previewData;
+        } else if (previewData.type === 'door') {
+            const { position, angle, width = 100, isFlipped = false } = previewData;
             
-            // Create preview node
-            const radius = 5;
-            const geometry = new THREE.CircleGeometry(radius, 32);
-            const material = new THREE.MeshBasicMaterial({ 
-                color: 0x333333,
+            const group = new THREE.Group();
+            group.position.set(position.x, position.y, 1); // Move slightly forward
+            group.rotation.z = angle;
+
+            // Door frame with semi-transparent material
+            const frameGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-width/2, 0, 0),
+                new THREE.Vector3(width/2, 0, 0)
+            ]);
+            const frameMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xff8c00,
+                linewidth: 6,
                 transparent: true,
                 opacity: 0.5
             });
-            const circle = new THREE.Mesh(geometry, material);
-            circle.position.set(position.x, position.y, 0);
+            const frame = new THREE.Line(frameGeometry, frameMaterial);
+            group.add(frame);
 
-            // Create outline
-            const outlineGeometry = new THREE.EdgesGeometry(geometry);
-            const outlineMaterial = new THREE.LineBasicMaterial({ 
-                color: 0x000000,
-                linewidth: 1,
-                transparent: true,
-                opacity: 0.5
-            });
-            const outline = new THREE.Line(outlineGeometry, outlineMaterial);
-            outline.position.set(position.x, position.y, 0);
-
-            // Add node preview
-            const nodeGroup = new THREE.Group();
-            nodeGroup.add(circle);
-            nodeGroup.add(outline);
-            this.previewGroup.add(nodeGroup);
-
-            // Add connected walls preview
-            if (connectedWalls) {
-                for (const wall of connectedWalls) {
-                    const { start, end } = wall;
-                    const direction = new THREE.Vector3(end.x - start.x, end.y - start.y, 0).normalize();
-                    const perpendicular = new THREE.Vector3(-direction.y, direction.x, 0);
-                    const thickness = 10;
-                    const halfThickness = thickness / 2;
-
-                    const vertices = [
-                        new THREE.Vector3(start.x + perpendicular.x * halfThickness, start.y + perpendicular.y * halfThickness, 0),
-                        new THREE.Vector3(start.x - perpendicular.x * halfThickness, start.y - perpendicular.y * halfThickness, 0),
-                        new THREE.Vector3(end.x + perpendicular.x * halfThickness, end.y + perpendicular.y * halfThickness, 0),
-                        new THREE.Vector3(end.x - perpendicular.x * halfThickness, end.y - perpendicular.y * halfThickness, 0)
-                    ];
-
-                    const wallGeometry = new THREE.BufferGeometry();
-                    const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
-                    const positions = new Float32Array(vertices.flatMap(v => [v.x, v.y, v.z]));
-
-                    wallGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                    wallGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
-
-                    const wallMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x333333,
-                        side: THREE.DoubleSide,
-                        transparent: true,
-                        opacity: 0.3
-                    });
-
-                    const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
-                    this.previewGroup.add(wallMesh);
-
-                    // Add wall outline
-                    const wallOutlineGeometry = new THREE.BufferGeometry().setFromPoints([
-                        vertices[0], vertices[2], vertices[3], vertices[1], vertices[0]
-                    ]);
-                    const wallOutlineMaterial = new THREE.LineBasicMaterial({ 
-                        color: 0x000000,
-                        linewidth: 1,
-                        transparent: true,
-                        opacity: 0.3
-                    });
-                    const wallOutline = new THREE.Line(wallOutlineGeometry, wallOutlineMaterial);
-                    this.previewGroup.add(wallOutline);
-                }
+            // Door swing arc
+            const arcPoints: THREE.Vector3[] = [];
+            const radius = width;  // Use full width for radius
+            const segments = 32;
+            const startAngle = isFlipped ? 0 : -Math.PI/2;
+            const endAngle = isFlipped ? Math.PI/2 : 0;
+            const arcOrigin = new THREE.Vector3(isFlipped ? width/2 : -width/2, 0, 0);
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const angle = startAngle + (endAngle - startAngle) * t;
+                const x = arcOrigin.x + radius * Math.cos(angle);
+                const y = radius * Math.sin(angle);
+                arcPoints.push(new THREE.Vector3(x, y, 0));
             }
+
+            const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
+            const arcMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xff8c00,
+                linewidth: 3,
+                transparent: true,
+                opacity: 0.5
+            });
+            const arc = new THREE.Line(arcGeometry, arcMaterial);
+            group.add(arc);
+
+            // Add door endpoints
+            const endpointGeometry = new THREE.CircleGeometry(5, 32);
+            const endpointMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xff8c00,
+                transparent: true,
+                opacity: 0.5
+            });
+
+            // Left endpoint
+            const leftEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+            leftEndpoint.position.set(-width/2, 0, 0);
+            group.add(leftEndpoint);
+
+            // Right endpoint
+            const rightEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+            rightEndpoint.position.set(width/2, 0, 0);
+            group.add(rightEndpoint);
+
+            this.previewGroup.add(group);
+        } else if (previewData.type === 'window') {
+            const { position, angle, width = 100, height = 150 } = previewData;
+            
+            const group = new THREE.Group();
+            group.position.set(position.x, position.y, 1); // Move slightly forward
+            group.rotation.z = angle;
+
+            // Window frame with semi-transparent material
+            const frameGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-width/2, 0, 0),
+                new THREE.Vector3(width/2, 0, 0)
+            ]);
+            const frameMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xFF69B4, // Pink color for windows
+                linewidth: 4,
+                transparent: true,
+                opacity: 0.5
+            });
+            const frame = new THREE.Line(frameGeometry, frameMaterial);
+            group.add(frame);
+
+            // Add vertical lines for window panes
+            const paneCount = 2;
+            const paneWidth = width / paneCount;
+            const verticalExtent = height / 6;
+
+            for (let i = 0; i <= paneCount; i++) {
+                const x = -width/2 + i * paneWidth;
+                const verticalGeometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(x, -verticalExtent, 0),
+                    new THREE.Vector3(x, verticalExtent, 0)
+                ]);
+                const verticalLine = new THREE.Line(verticalGeometry, frameMaterial);
+                group.add(verticalLine);
+            }
+
+            // Add window endpoints
+            const endpointGeometry = new THREE.CircleGeometry(5, 32);
+            const endpointMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xFF69B4,
+                transparent: true,
+                opacity: 0.5
+            });
+
+            // Left endpoint
+            const leftEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+            leftEndpoint.position.set(-width/2, 0, 0);
+            group.add(leftEndpoint);
+
+            // Right endpoint
+            const rightEndpoint = new THREE.Mesh(endpointGeometry, endpointMaterial);
+            rightEndpoint.position.set(width/2, 0, 0);
+            group.add(rightEndpoint);
+
+            this.previewGroup.add(group);
         }
     }
 } 

@@ -11,6 +11,7 @@ import { NodeObject } from './objects/NodeObject';
 import { WallObject } from './objects/WallObject';
 import { SelectionStore } from '../../store/SelectionStore';
 import { KonvaEventObject } from 'konva/lib/Node';
+import { v4 as uuidv4 } from 'uuid';
 
 enum WallToolMode {
     IDLE = 'idle',
@@ -132,12 +133,6 @@ export class WallTool extends BaseTool {
                     selectedWall.setSelected(true);
                     selectedWall.setHighlighted(true);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        selectedWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
                 } else {
                     // If the wall doesn't exist anymore, reset state
                     this.resetToolState();
@@ -147,12 +142,7 @@ export class WallTool extends BaseTool {
                     this.state.selectedWall.setSelected(false);
                     this.state.selectedWall.setHighlighted(false);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        this.state.selectedWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                 }
                 this.resetToolState();
             }
@@ -209,12 +199,7 @@ export class WallTool extends BaseTool {
                 source: 'wall-tool'
             });
             this.logger.info('handleMouseDown: Node hit 3', this.state.mode);
-            // Force visual update
-            const layers = this.canvasStore.getLayers();
-            if (layers?.mainLayer) {
-                hitNode.render(layers.mainLayer);
-                layers.mainLayer.batchDraw();
-            }
+
 
             this.logger.info('handleMouseDown: Node selected and prepared for movement:', {
                 nodeId: hitNode.id,
@@ -242,12 +227,7 @@ export class WallTool extends BaseTool {
                         source: 'wall-tool'
                     });
 
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        hitWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                 }
             } else if (this.state.mode === WallToolMode.IDLE) {
                 // Clear selection when clicking empty space
@@ -255,12 +235,7 @@ export class WallTool extends BaseTool {
                     this.state.selectedWall.setSelected(false);
                     this.state.selectedWall.setHighlighted(false);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        this.state.selectedWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                     
                     // Emit empty selection event
                     this.eventManager.emit('selection:changed', {
@@ -276,12 +251,7 @@ export class WallTool extends BaseTool {
                     this.state.selectedNode.setSelected(false);
                     this.state.selectedNode.setHighlighted(false);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        this.state.selectedNode.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                 }
                 
                 // Create new node and start drawing
@@ -548,11 +518,7 @@ export class WallTool extends BaseTool {
         // Remove the source node
         graph.removeNode(sourceNode.id);
 
-        // Trigger redraw
-        const layers = this.canvasStore.getLayers();
-        if (layers) {
-            layers.mainLayer.batchDraw();
-        }
+
     }
 
     private findNodeAtPosition(position: Point): NodeObject | null {
@@ -628,62 +594,54 @@ export class WallTool extends BaseTool {
         return null;
     }
 
-    private async handleWallSplit(position: Point): Promise<void> {
-        const graph = this.canvasStore.getWallGraph();
-        const walls = graph.getAllWalls();
-        
+    private async handleWallSplit(point: Point): Promise<void> {
         // Find the wall that was clicked
-        const clickedWall = walls.find(wall => wall.containsPoint(position));
-        if (!clickedWall) return;
+        const wall = this.findWallAtPosition(point);
+        if (!wall) return;
 
-        this.logger.info('Splitting wall:', {
-            wallId: clickedWall.id,
-            splitPoint: position
-        });
+        // Get the wall data before removing it
+        const wallData = wall.getData();
+        const wallId = wall.id;
 
-        // Get the wall data
-        const wallData = clickedWall.getData();
-        const startNode = graph.getNode(wallData.startNodeId);
-        const endNode = graph.getNode(wallData.endNodeId);
-        
-        if (!startNode || !endNode) {
-            this.logger.error('Could not find wall nodes');
+        // Create new node at split point
+        const newNode = this.canvasStore.getWallGraph().createNode(point);
+        if (!newNode) return;
+
+        // Create two new walls connecting to the new node
+        const wall1 = this.canvasStore.getWallGraph().createWall(
+            wallData.startNodeId,
+            newNode.id
+        );
+
+        const wall2 = this.canvasStore.getWallGraph().createWall(
+            newNode.id,
+            wallData.endNodeId
+        );
+
+        if (!wall1 || !wall2) {
+            this.logger.error('Failed to create new walls during split');
             return;
         }
 
-        try {
-            // Create a new node at the click position
-            const newNode = await graph.createNode(position);
+        // Emit wall:split event before removing the original wall
+        this.eventManager.emit('wall:split', {
+            originalWallId: wallId,
+            newWalls: [
+                { id: wall1.id, wall: wall1 },
+                { id: wall2.id, wall: wall2 }
+            ]
+        });
 
-            // Create two new walls
-            const wall1 = await graph.createWall(wallData.startNodeId, newNode.id);
-            const wall2 = await graph.createWall(newNode.id, wallData.endNodeId);
+        // Remove the original wall
+        this.canvasStore.getWallGraph().removeWall(wallId);
 
-            if (!wall1 || !wall2) {
-                this.logger.error('Failed to create new walls');
-                return;
-            }
-
-            // Remove the original wall
-            await graph.removeWall(clickedWall.id);
-
-            // Emit graph:changed event
-            this.eventManager.emit('graph:changed', {
-                nodeCount: graph.getAllNodes().length,
-                wallCount: graph.getAllWalls().length,
-                roomCount: 0,
-                doorCount: this.canvasStore.getDoorStore().getAllDoors().length,
-                windowCount: this.canvasStore.getWindowStore().getAllWindows().length
-            });
-
-            this.logger.info('Wall split completed:', {
-                originalWallId: clickedWall.id,
-                newWallIds: [wall1.id, wall2.id],
-                newNodeId: newNode.id
-            });
-        } catch (error) {
-            this.logger.error('Error splitting wall:', error);
-        }
+        // Emit graph changed event
+        this.eventManager.emit('graph:changed', {
+            nodeCount: this.canvasStore.getWallGraph().getAllNodes().length,
+            wallCount: this.canvasStore.getWallGraph().getAllWalls().length,
+            doorCount: this.canvasStore.getDoorStore().getAllDoors().length,
+            windowCount: this.canvasStore.getWindowStore().getAllWindows().length
+        });
     }
 
     private snapToGrid(position: Point): Point {
