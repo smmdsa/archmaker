@@ -87,7 +87,8 @@ export class NodeObject extends BaseObject {
     containsPoint(point: Point): boolean {
         const dx = point.x - this.position.x;
         const dy = point.y - this.position.y;
-        return (dx * dx + dy * dy) <= (this.radius * this.radius);
+        const offset = 10; // Increase size by 10 units
+        return (dx * dx + dy * dy) <= ((this.radius + offset) * (this.radius + offset));
     }
 
     // Override setSelected to force re-render

@@ -60,7 +60,7 @@ export class WindowTool extends BaseTool {
         dragStartPosition: null,
         dragOffset: null
     };
-
+    
     private windowStore: WindowStore;
     private wallGraph: WallGraph;
     private canvasStore: CanvasStore;
@@ -74,6 +74,22 @@ export class WindowTool extends BaseTool {
         this.windowStore = WindowStore.getInstance(eventManager, logger);
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
         this.wallGraph = this.canvasStore.getWallGraph();
+
+        // Subscribe to wall movement events
+        this.eventManager.on('wall:moved', (event: { 
+            wallId: string, 
+            wall: WallObject,
+            newStartPoint: Point,
+            newEndPoint: Point 
+        }) => {
+            this.handleWallMovement(event);
+        });
+        this.eventManager.on('wall:split', (event: { 
+            originalWallId: string,
+            newWalls: { id: string, wall: WallObject }[]
+        }) => {
+            this.handleWallSplit(event);
+        });
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {
@@ -140,9 +156,9 @@ export class WindowTool extends BaseTool {
         }
 
         // If we didn't hit a node, check for window hit
-        const hitWindow = this.findWindowAtPosition(event.position);
-        
-        if (hitWindow) {
+                const hitWindow = this.findWindowAtPosition(event.position);
+
+                if (hitWindow) {
             this.logger.info('Window tool: Hit existing window', {
                 windowId: hitWindow.id,
                 position: event.position
@@ -180,9 +196,9 @@ export class WindowTool extends BaseTool {
             // Set mode based on mouse button
             if (event.originalEvent instanceof MouseEvent && event.originalEvent.button === 0) {
                 this.state.mode = WindowToolMode.DRAGGING_WINDOW;
-            } else {
+        } else {
                 this.state.mode = WindowToolMode.MOVING_WINDOW;
-            }
+    }
 
             return;
         }
@@ -191,7 +207,7 @@ export class WindowTool extends BaseTool {
         if (this.state.selectedWindow) {
             this.state.selectedWindow.setSelected(false);
             this.state.selectedWindow.setHighlighted(false);
-            
+
             // Emit empty selection event
             this.eventManager.emit('selection:changed', {
                 selectedNodes: [],
@@ -200,7 +216,7 @@ export class WindowTool extends BaseTool {
                 selectedWindows: [],
                 source: 'window-tool'
             });
-            
+
             this.state.selectedWindow = null;
             this.state.dragOffset = null;
             this.state.dragStartPosition = null;
@@ -281,8 +297,8 @@ export class WindowTool extends BaseTool {
 
                 // Update highlighted wall
                 if (this.state.selectedWall && this.state.selectedWall !== nearestWall) {
-                    this.state.selectedWall.setHighlighted(false);
-                }
+            this.state.selectedWall.setHighlighted(false);
+        }
                 if (nearestWall && nearestWall !== this.state.selectedWall) {
                     nearestWall.setHighlighted(true);
                 }
@@ -407,7 +423,7 @@ export class WindowTool extends BaseTool {
                         // Update window position and wall reference
                         this.state.selectedWindow.updatePosition(snappedPos);
                         this.state.selectedWindow.updateWallReference(nearestWall);
-                        
+
                         // Trigger re-render
                         this.eventManager.emit('window:changed', {
                             windowId: this.state.selectedWindow.id,
@@ -436,7 +452,7 @@ export class WindowTool extends BaseTool {
                         const snappedPos = this.getNearestPointOnWall(point, nearestWall);
                         this.state.selectedWindow.updatePosition(snappedPos);
                         this.state.selectedWindow.updateWallReference(nearestWall);
-                        
+
                         // Trigger re-render
                         this.eventManager.emit('window:changed', {
                             windowId: this.state.selectedWindow.id,
@@ -444,7 +460,7 @@ export class WindowTool extends BaseTool {
                         });
                     }
                 }
-                this.clearPreview();
+        this.clearPreview();
                 this.state.mode = WindowToolMode.IDLE;
                 this.state.dragOffset = null;
                 this.state.dragStartPosition = null;
@@ -455,10 +471,10 @@ export class WindowTool extends BaseTool {
                     const nearestWall = this.findNearestWall(point);
                     if (nearestWall) {
                         const snappedPos = this.getNearestPointOnWall(point, nearestWall);
-                        
+
                         // Update node position
                         this.state.selectedNode.move(snappedPos);
-                        
+
                         // Trigger re-render
                         this.eventManager.emit('window:changed', {
                             windowId: this.state.selectedWindow.id,
@@ -655,5 +671,155 @@ export class WindowTool extends BaseTool {
         // Return distance to nearest point
         return this.getDistance(point, nearestPoint);
     }
-    
+
+    private handleWallMovement(event: { 
+        wallId: string, 
+        wall: WallObject,
+        newStartPoint: Point,
+        newEndPoint: Point 
+    }): void {
+        // Find all doors on this wall
+        const windowsOnWall = this.windowStore.getAllWindows()
+            .filter(window => window.getData().wallId === event.wallId);
+
+        if (windowsOnWall.length === 0) return;
+
+        // Update each door's position
+        windowsOnWall.forEach(window => {
+            const windowData = window.getData();
+            
+            // Calculate relative position along wall (0 to 1)
+            const oldWallData = event.wall.getData();
+            const oldWallLength = this.getDistance(oldWallData.startPoint, oldWallData.endPoint);
+            const windowToStartDist = this.getDistance(windowData.position, oldWallData.startPoint);
+            const relativePosition = windowToStartDist / oldWallLength;
+
+            // Calculate new position using the same relative position
+            const newWallLength = this.getDistance(event.newStartPoint, event.newEndPoint);
+            const newDoorDist = relativePosition * newWallLength;
+            const dx = event.newEndPoint.x - event.newStartPoint.x;
+            const dy = event.newEndPoint.y - event.newStartPoint.y;
+            const angle = Math.atan2(dy, dx);
+
+            const newPosition: Point = {
+                x: event.newStartPoint.x + Math.cos(angle) * newDoorDist,
+                y: event.newStartPoint.y + Math.sin(angle) * newDoorDist
+            };
+
+            // Update door position and angle
+            window.updatePosition(newPosition);
+            window.updateWallReference(event.wall);
+
+            // Trigger re-render
+            this.eventManager.emit('door:changed', {
+                windowId: window.id,
+                window: window
+            });
+        });
+
+        this.logger.info('Door tool: Updated doors after wall movement', {
+            wallId: event.wallId,
+            updatedWindows: windowsOnWall.map(w => w.id)
+        });
+    }
+
+    private handleWallSplit(event: {
+        originalWallId: string,
+        newWalls: { id: string, wall: WallObject }[]
+    }): void {
+        // Get all doors that were on the original wall
+        const affectedWindows = this.windowStore.getAllWindows()
+            .filter(window => window.getData().wallId === event.originalWallId);
+
+        if (affectedWindows.length === 0) return;
+
+        this.logger.info('Window tool: Handling wall split', {
+            originalWallId: event.originalWallId,
+            newWallIds: event.newWalls.map(w => w.id),
+            affectedWindows: affectedWindows.map(w => w.id)
+        });
+
+        // For each affected door, determine which wall segment it should belong to
+        affectedWindows.forEach(window => {
+            const windowPos = window.getData().position;
+            
+            // Find which new wall segment the door overlaps with or is closest to
+            let bestWall = event.newWalls[0].wall;
+            let bestDistance = Infinity;
+            let bestProjection = 0;
+
+            for (const { wall } of event.newWalls) {
+        const wallData = wall.getData();
+                const startPoint = wallData.startPoint;
+                const endPoint = wallData.endPoint;
+
+        // Calculate wall vector
+                const wallDx = endPoint.x - startPoint.x;
+                const wallDy = endPoint.y - startPoint.y;
+                const wallLengthSq = wallDx * wallDx + wallDy * wallDy;
+
+                // Calculate projection of window position onto wall line
+                const windowDx = windowPos.x - startPoint.x;
+                const windowDy = windowPos.y - startPoint.y;
+                const projection = (windowDx * wallDx + windowDy * wallDy) / wallLengthSq;
+
+                // Calculate perpendicular distance to wall
+                const projectedX = startPoint.x + projection * wallDx;
+                const projectedY = startPoint.y + projection * wallDy;
+                const distance = this.getDistance(windowPos, { x: projectedX, y: projectedY });
+
+                // Check if door projects onto this wall segment (with small tolerance)
+                if (projection >= -0.01 && projection <= 1.01) {
+                    // Door overlaps this wall segment
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestWall = wall;
+                        bestProjection = projection;
+                    }
+                } else if (distance < bestDistance) {
+                    // Door doesn't overlap but might be closest to this segment
+                    bestDistance = distance;
+                    bestWall = wall;
+                    bestProjection = Math.max(0, Math.min(1, projection));
+                }
+            }
+
+            // Calculate the new position on the best wall
+            const bestWallData = bestWall.getData();
+            const wallDx = bestWallData.endPoint.x - bestWallData.startPoint.x;
+            const wallDy = bestWallData.endPoint.y - bestWallData.startPoint.y;
+            const newPosition = {
+                x: bestWallData.startPoint.x + bestProjection * wallDx,
+                y: bestWallData.startPoint.y + bestProjection * wallDy
+            };
+
+            // Update door position and wall reference
+            window.updatePosition(newPosition);
+            window.updateWallReference(bestWall);
+
+            // Trigger re-render
+            this.eventManager.emit('window:changed', {
+                windowId: window.id,
+                window: window
+            });
+
+            this.logger.info('Window tool: Reassigned door after wall split', {
+                windowId: window.id,
+                originalWallId: event.originalWallId,
+                newWallId: bestWall.id,
+                originalPosition: windowPos,
+                newPosition: newPosition,
+                distanceToWall: bestDistance,
+                projectionOnWall: bestProjection
+            });
+        });
+
+        // Emit graph changed event to update counts
+        this.eventManager.emit('graph:changed', {
+            nodeCount: this.wallGraph.getAllNodes().length,
+            wallCount: this.wallGraph.getAllWalls().length,
+            doorCount: this.canvasStore.getDoorStore().getAllDoors().length,
+            windowCount: this.windowStore.getAllWindows().length
+        });
+    }
 } 

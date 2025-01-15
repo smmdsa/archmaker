@@ -171,7 +171,7 @@ export class RemoveTool extends BaseTool {
                             
                             if (otherNode1 && otherNode2) {
                                 // Create new wall connecting the remaining nodes
-                                const newWall = graph.createWall(otherNode1, otherNode2);
+                                const newWall = graph.createWall(otherNode1.id, otherNode2.id);
                                 
                                 // Remove old walls
                                 graph.removeWall(wall1Id);
@@ -181,7 +181,7 @@ export class RemoveTool extends BaseTool {
                                 this.eventManager.emit('object:deleted', { objectId: wall2Id, type: 'wall' });
                                 this.logger.info('Remove tool: Merged walls', { 
                                     removedWalls: [wall1Id, wall2Id],
-                                    newWallId: newWall.id 
+                                    newWallId: newWall?.id || null 
                                 });
                             }
                         }

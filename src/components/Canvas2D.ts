@@ -11,6 +11,12 @@ interface Transform {
     scale: number;
 }
 
+interface WallPreviewData {
+    start: Point;
+    end: Point;
+    thickness?: number;
+}
+
 export class Canvas2D {
     private renderer: THREE.WebGLRenderer;
     private scene: THREE.Scene;
@@ -779,7 +785,57 @@ export class Canvas2D {
 
         if (!previewData) return;
 
-        if (previewData.type === 'wall') {
+        if (previewData.type === 'walls') {
+            // Handle multiple walls preview
+            previewData.walls.forEach((wallData: WallPreviewData) => {
+                const { start, end, thickness = 10 } = wallData;
+                
+                // Create preview wall
+                const direction = new THREE.Vector3(end.x - start.x, end.y - start.y, 0).normalize();
+                const perpendicular = new THREE.Vector3(-direction.y, direction.x, 0);
+                const halfThickness = thickness / 2;
+
+                // Create vertices for preview wall
+                const vertices = [
+                    new THREE.Vector3(start.x + perpendicular.x * halfThickness, start.y + perpendicular.y * halfThickness, 0),
+                    new THREE.Vector3(start.x - perpendicular.x * halfThickness, start.y - perpendicular.y * halfThickness, 0),
+                    new THREE.Vector3(end.x + perpendicular.x * halfThickness, end.y + perpendicular.y * halfThickness, 0),
+                    new THREE.Vector3(end.x - perpendicular.x * halfThickness, end.y - perpendicular.y * halfThickness, 0)
+                ];
+
+                // Create preview geometry
+                const geometry = new THREE.BufferGeometry();
+                const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
+                const positions = new Float32Array(vertices.flatMap(v => [v.x, v.y, v.z]));
+
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
+                // Create semi-transparent material
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0x333333,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.5
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                this.previewGroup.add(mesh);
+
+                // Add outline
+                const outlineGeometry = new THREE.BufferGeometry().setFromPoints([
+                    vertices[0], vertices[2], vertices[3], vertices[1], vertices[0]
+                ]);
+                const outlineMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x000000,
+                    linewidth: 1,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                const outline = new THREE.Line(outlineGeometry, outlineMaterial);
+                this.previewGroup.add(outline);
+            });
+        } else if (previewData.type === 'wall') {
             const { start, end, thickness = 10 } = previewData;
             
             // Create preview wall

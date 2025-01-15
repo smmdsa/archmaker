@@ -65,7 +65,7 @@ export class WallTool extends BaseTool {
         startNode: null,
         activeNode: null,
         activeWall: null,
-        snapThreshold: 10,
+        snapThreshold: 100,
         isDragging: false,
         selectedWall: null,
         selectedNode: null,
@@ -274,6 +274,12 @@ export class WallTool extends BaseTool {
                         y: event.position.y - this.state.dragOffset.y
                     };
 
+                    // Check for snapping to other nodes
+                    const nearestNode = this.findNearestNode(targetPosition, this.state.activeNode);
+                    if (nearestNode && this.isWithinSnapThreshold(targetPosition, nearestNode.position)) {
+                        targetPosition = nearestNode.position;
+                    }
+
                     // Get connected walls and find a reference node for angle constraints
                     const connectedWalls = this.state.activeNode.getConnectedWalls()
                         .map(id => this.canvasStore.getWallGraph().getWall(id))
@@ -304,12 +310,15 @@ export class WallTool extends BaseTool {
                         };
                     });
 
-                    // Emit preview event
+                    // Emit single preview event for all connected walls
                     this.eventManager.emit('canvas:preview', {
                         data: {
-                            type: 'node',
-                            position: targetPosition,
-                            connectedWalls: previewWalls
+                            type: 'walls', // Changed to plural to indicate multiple walls
+                            walls: previewWalls.map(wall => ({
+                                start: wall.start,
+                                end: wall.end,
+                                thickness: 10 // Use default thickness
+                            }))
                         }
                     });
 
@@ -681,7 +690,7 @@ export class WallTool extends BaseTool {
             startNode: null,
             activeNode: null,
             activeWall: null,
-            snapThreshold: 10,
+            snapThreshold: 20,
             isDragging: false,
             selectedWall: null,
             selectedNode: null,
