@@ -30,6 +30,10 @@ export class DoorStore {
         return Array.from(this.doors.values());
     }
 
+    public getDoor(doorId: string): DoorObject | undefined {
+        return this.doors.get(doorId);
+    }
+
     public clear(): void {
         const doorIds = Array.from(this.doors.keys());
         doorIds.forEach(id => this.removeDoor(id));
