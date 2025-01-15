@@ -28,22 +28,28 @@ export class StorageMenu {
     }
 
     private initialize(): void {
-        // Escuchar clicks fuera del menú
+        // Listen for clicks outside the menu
         document.addEventListener('click', (e) => {
             if (this.menu && !this.menu.contains(e.target as Node)) {
                 this.hide();
             }
         });
 
-        // Escuchar evento para mostrar el menú
+        // Listen for topbar item clicks
         this.eventManager.on('topbar:item:clicked', (data: { itemId: string }) => {
             if (data.itemId === 'storage') {
                 const item = document.querySelector(`[data-item-id="storage"]`);
                 if (item) {
-                    this.show(item as HTMLElement);
+                    // Toggle menu visibility
+                    if (this.menu) {
+                        this.hide();
+                    } else {
+                        this.show(item as HTMLElement);
+                    }
                 }
             }
         });
+
         this.logger.info('StorageMenu initialized');
     }
 
@@ -74,11 +80,18 @@ export class StorageMenu {
             }
         });
 
-        // Posicionar el menú
+        // Position the menu
         const rect = anchor.getBoundingClientRect();
         menu.style.position = 'absolute';
         menu.style.top = `${rect.bottom}px`;
         menu.style.left = `${rect.left}px`;
+        menu.style.zIndex = '1000';
+        menu.style.backgroundColor = 'var(--background-color)';
+        menu.style.border = '1px solid var(--border-color)';
+        menu.style.borderRadius = '4px';
+        menu.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+        menu.style.minWidth = '200px';
+        menu.style.padding = '4px 0';
 
         document.body.appendChild(menu);
         this.menu = menu;
@@ -93,5 +106,7 @@ export class StorageMenu {
 
     public dispose(): void {
         this.hide();
+        // Remove event listeners
+        document.removeEventListener('click', this.hide.bind(this));
     }
 } 
