@@ -6,13 +6,10 @@ import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
 import { Point } from '../../core/types/geometry';
 import { ToolPlugin } from '../../core/plugins/decorators/Plugin';
 import { CanvasStore } from '../../store/CanvasStore';
-import { Line } from 'konva/lib/shapes/Line';
-import { Layer } from 'konva/lib/Layer';
 
 interface RoomToolState {
     isDrawing: boolean;
     startPoint: Point | null;
-    previewShape: Line | null;
 }
 
 @ToolPlugin({
@@ -29,8 +26,7 @@ interface RoomToolState {
 export class RoomTool extends BaseTool {
     private readonly state: RoomToolState = {
         isDrawing: false,
-        startPoint: null,
-        previewShape: null
+        startPoint: null
     };
 
     private static readonly TOOL_ID = '@room-tool';
@@ -46,7 +42,6 @@ export class RoomTool extends BaseTool {
     };
 
     private canvasStore: CanvasStore;
-    private tempLayer: Layer | null = null;
 
     constructor(
         eventManager: IEventManager,
@@ -54,18 +49,12 @@ export class RoomTool extends BaseTool {
         configManager: IConfigManager
     ) {
         super(eventManager, logger, RoomTool.TOOL_ID, RoomTool.TOOL_MANIFEST);
-        
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
-
-        // Subscribe to canvas layer changes
-        this.eventManager.on('canvas:layers', (event: any) => {
-            this.tempLayer = event.tempLayer;
-        });
     }
 
     async onCanvasEvent(event: CanvasEvent): Promise<void> {
         const position = event.position;
-        if (!position || !this.tempLayer) return;
+        if (!position) return;
 
         switch (event.type) {
             case 'mousedown':
@@ -85,32 +74,15 @@ export class RoomTool extends BaseTool {
         this.state.isDrawing = true;
         this.state.startPoint = point;
 
-        // Create preview shape
-        this.state.previewShape = new Line({
-            points: [point.x, point.y, point.x, point.y, point.x, point.y, point.x, point.y],
-            closed: true,
-            stroke: '#666666',
-            strokeWidth: 1,
-            dash: [5, 5]
-        });
-
-        this.tempLayer?.add(this.state.previewShape);
-        this.tempLayer?.batchDraw();
+        // Create initial preview
+        this.updatePreview(point);
     }
 
     private async handleMouseMove(point: Point): Promise<void> {
-        if (!this.state.isDrawing || !this.state.startPoint || !this.state.previewShape) return;
+        if (!this.state.isDrawing || !this.state.startPoint) return;
 
-        // Update preview shape
-        const points = [
-            this.state.startPoint.x, this.state.startPoint.y,
-            point.x, this.state.startPoint.y,
-            point.x, point.y,
-            this.state.startPoint.x, point.y
-        ];
-
-        this.state.previewShape.points(points);
-        this.tempLayer?.batchDraw();
+        // Update preview
+        this.updatePreview(point);
     }
 
     private async handleMouseUp(point: Point): Promise<void> {
@@ -149,14 +121,46 @@ export class RoomTool extends BaseTool {
             });
         }
 
-        // Clean up
-        if (this.state.previewShape) {
-            this.state.previewShape.destroy();
-            this.state.previewShape = null;
-            this.tempLayer?.batchDraw();
-        }
+        // Clear preview
+        this.eventManager.emit('canvas:preview', { data: null });
 
         this.state.isDrawing = false;
         this.state.startPoint = null;
+    }
+
+    private updatePreview(currentPoint: Point): void {
+        if (!this.state.startPoint) return;
+
+        // Create preview walls data
+        const walls = [
+            // Top wall
+            {
+                start: { x: this.state.startPoint.x, y: this.state.startPoint.y },
+                end: { x: currentPoint.x, y: this.state.startPoint.y }
+            },
+            // Right wall
+            {
+                start: { x: currentPoint.x, y: this.state.startPoint.y },
+                end: { x: currentPoint.x, y: currentPoint.y }
+            },
+            // Bottom wall
+            {
+                start: { x: currentPoint.x, y: currentPoint.y },
+                end: { x: this.state.startPoint.x, y: currentPoint.y }
+            },
+            // Left wall
+            {
+                start: { x: this.state.startPoint.x, y: currentPoint.y },
+                end: { x: this.state.startPoint.x, y: this.state.startPoint.y }
+            }
+        ];
+
+        // Emit preview event
+        this.eventManager.emit('canvas:preview', {
+            data: {
+                type: 'walls',
+                walls: walls
+            }
+        });
     }
 } 
