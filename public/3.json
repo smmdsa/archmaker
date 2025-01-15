@@ -1,0 +1,69 @@
+{
+  "metadata": {
+    "id": "47beba4a-94da-46ca-a4b3-cb3e85296f64",
+    "name": "Untitled Project",
+    "version": "2.0.0",
+    "created": "2025-01-15T07:41:09.483Z",
+    "lastModified": "2025-01-15T07:41:09.483Z"
+  },
+  "settings": {
+    "units": "cm",
+    "gridSize": 20,
+    "snapToGrid": true,
+    "defaultWallHeight": 280,
+    "defaultWallThickness": 10
+  },
+  "scene": {
+    "walls": [
+      {
+        "id": "02673c0f-7c32-4aec-95ad-52fdbd4ba8f4",
+        "startPoint": {
+          "x": -418.2765859466813,
+          "y": -173.3435259947901
+        },
+        "endPoint": {
+          "x": 52.8159415084261,
+          "y": -18.577974508917517
+        },
+        "height": 280,
+        "thickness": 10
+      }
+    ],
+    "doors": [
+      {
+        "id": "3af88852-6970-4da6-8482-02499fcaa23a",
+        "wallId": "02673c0f-7c32-4aec-95ad-52fdbd4ba8f4",
+        "position": {
+          "x": -199.07808592220147,
+          "y": -101.33139512014469
+        },
+        "angle": 0.3174165980778624,
+        "properties": {
+          "width": 100,
+          "height": 200,
+          "isFlipped": false
+        }
+      }
+    ],
+    "windows": [],
+    "rooms": []
+  },
+  "viewer": {
+    "camera": {
+      "position": {
+        "x": 500,
+        "y": 500,
+        "z": 500
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "zoom": 1
+    },
+    "showGrid": true,
+    "showAxes": true,
+    "showGround": true
+  }
+}

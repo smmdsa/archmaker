@@ -4,7 +4,8 @@ export enum SelectableObjectType {
     NODE = 'node',
     WALL = 'wall',
     ROOM = 'room',
-    DOOR = 'door'
+    DOOR = 'door',
+    WINDOW = 'window'
 }
 
 export interface ISelectableObject {

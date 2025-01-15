@@ -171,7 +171,7 @@ export class RemoveTool extends BaseTool {
                             
                             if (otherNode1 && otherNode2) {
                                 // Create new wall connecting the remaining nodes
-                                const newWall = graph.createWall(otherNode1, otherNode2);
+                                const newWall = graph.createWall(otherNode1.id, otherNode2.id);
                                 
                                 // Remove old walls
                                 graph.removeWall(wall1Id);
@@ -181,7 +181,7 @@ export class RemoveTool extends BaseTool {
                                 this.eventManager.emit('object:deleted', { objectId: wall2Id, type: 'wall' });
                                 this.logger.info('Remove tool: Merged walls', { 
                                     removedWalls: [wall1Id, wall2Id],
-                                    newWallId: newWall.id 
+                                    newWallId: newWall?.id || null 
                                 });
                             }
                         }
@@ -211,11 +211,6 @@ export class RemoveTool extends BaseTool {
                 windowCount: this.canvasStore.getWindowStore()?.getAllWindows().length || 0
             });
 
-            // Force canvas redraw
-            const layers = this.canvasStore.getLayers();
-            if (layers?.mainLayer) {
-                layers.mainLayer.batchDraw();
-            }
 
         } catch (error) {
             this.logger.error('Remove tool: Failed to remove objects', error instanceof Error ? error : new Error('Unknown error'));

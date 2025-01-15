@@ -1,405 +1,456 @@
-import { BehaviorSubject, Subject, debounceTime } from 'rxjs';
-import { Layer } from 'konva/lib/Layer';
 import { WallGraph } from '../plugins/wall-tool/models/WallGraph';
 import { ILogger } from '../core/interfaces/ILogger';
 import { IEventManager } from '../core/interfaces/IEventManager';
-import { ISelectableObject } from '../core/interfaces/ISelectableObject';
-import { WallObject } from '../plugins/wall-tool/objects/WallObject';
-import { NodeObject } from '../plugins/wall-tool/objects/NodeObject';
-import { RoomObject } from '../plugins/room-tool/objects/RoomObject';
-import { DoorObject } from '../plugins/door-tool/objects/DoorObject';
 import { DoorStore } from '../plugins/door-tool/stores/DoorStore';
 import { WindowStore } from '../plugins/window-tool/stores/WindowStore';
+import { ProjectData, SceneData, ViewerSettings } from '../core/storage/interfaces';
+import { WallObject } from '../plugins/wall-tool/objects/WallObject';
+import { DoorObject } from '../plugins/door-tool/objects/DoorObject';
 import { WindowObject } from '../plugins/window-tool/objects/WindowObject';
-import { ProjectData, ProjectMetadata, ProjectSettings } from '../core/storage/interfaces';
+import { NodeObject } from '../plugins/wall-tool/objects/NodeObject';
+import { Vector2 } from 'three';
 import { v4 as uuidv4 } from 'uuid';
 
-// Event interfaces
-interface ObjectCreatedEvent {
-    object: ISelectableObject;
-}
-
-interface ObjectUpdatedEvent {
-    object: ISelectableObject;
-}
-
-interface ObjectDeletedEvent {
-    objectId: string;
-    type: string;
-}
-
-interface GraphChangedEvent {
-    nodeCount: number;
-    wallCount: number;
-    roomCount: number;
-    doorCount: number;
-    windowCount: number;
-}
-
-export interface CanvasLayers {
-    mainLayer: Layer;
-    tempLayer: Layer;
-    gridLayer: Layer;
-}
-
-// Graph registry interface
-interface GraphRegistry {
-    walls: WallGraph;
-    doors: DoorStore;
-    windows: WindowStore;
-}
-
 export class CanvasStore {
-    private static instance: CanvasStore | null = null;
-    private readonly graphs: GraphRegistry;
-    private readonly layers$ = new BehaviorSubject<CanvasLayers | null>(null);
-    private readonly redraw$ = new Subject<void>();
-    private projectMetadata: ProjectMetadata;
-    private projectSettings: ProjectSettings;
-    
-    private constructor(
+    private static instance: CanvasStore;
+    private readonly wallGraph: WallGraph;
+    private readonly doorStore: DoorStore;
+    private readonly windowStore: WindowStore;
+    private currentProjectId: string | null = null;
+    private projectMetadata: {
+        name: string;
+        created: string;
+        lastModified: string;
+        version: string;
+    } = {
+        name: 'Untitled Project',
+        created: new Date().toISOString(),
+        lastModified: new Date().toISOString(),
+        version: '2.0.0'
+    };
+    private viewerSettings: ViewerSettings = {
+        camera: {
+            position: { x: 500, y: 500, z: 500 },
+            target: { x: 0, y: 0, z: 0 },
+            zoom: 1
+        },
+        showGrid: true,
+        showAxes: true,
+        showGround: true
+    };
+
+    constructor(
         private readonly eventManager: IEventManager,
         private readonly logger: ILogger
     ) {
-        // Initialize all graphs
-        this.graphs = {
-            walls: new WallGraph(this.eventManager),
-            doors: DoorStore.getInstance(this.eventManager, this.logger),
-            windows: WindowStore.getInstance(this.eventManager, this.logger)
-        };
+        // Initialize stores
+        this.wallGraph = new WallGraph(eventManager);
+        this.doorStore = DoorStore.getInstance(eventManager, logger);
+        this.windowStore = WindowStore.getInstance(eventManager, logger);
 
-        // Initialize project metadata
-        this.projectMetadata = {
-            id: uuidv4(),
-            name: 'New Project',
-            version: '1.0.0',
-            created: new Date().toISOString(),
-            lastModified: new Date().toISOString()
-        };
-
-        // Initialize project settings
-        this.projectSettings = {
-            scale: 100, // 1px = 1cm
-            units: 'cm',
-            gridSize: 20,
-            snapToGrid: true,
-            defaultWallHeight: 280,
-            defaultWallThickness: 10,
-            defaultDoorHeight: 200,
-            defaultDoorWidth: 90,
-            defaultWindowHeight: 120,
-            defaultWindowWidth: 100,
-            defaultWindowSillHeight: 100
-        };
-        
-        this.setupSubscriptions();
-        this.logger.info('CanvasStore singleton initialized with graphs', {
-            availableGraphs: Object.keys(this.graphs)
-        });
+        // Subscribe to storage events
+        this.eventManager.on('project:loaded', this.handleProjectLoaded.bind(this));
+        this.eventManager.on('project:saved', this.handleProjectSaved.bind(this));
     }
 
-    static getInstance(eventManager: IEventManager, logger: ILogger): CanvasStore {
+    // Add static getInstance method
+    public static getInstance(eventManager: IEventManager, logger: ILogger): CanvasStore {
         if (!CanvasStore.instance) {
             CanvasStore.instance = new CanvasStore(eventManager, logger);
         }
         return CanvasStore.instance;
     }
 
-    // Graph access methods
-    getWallGraph(): WallGraph {
-        return this.graphs.walls;
-    }
-
-    getDoorStore(): DoorStore {
-        return this.graphs.doors;
-    }
-
-    getWindowStore(): WindowStore {
-        return this.graphs.windows;
-    }
-
-    private setupSubscriptions(): void {
-        // Object events
-        this.eventManager.on<ObjectCreatedEvent>('object:created', () => {
-            this.redraw$.next();
-        });
-
-        this.eventManager.on<ObjectUpdatedEvent>('object:updated', () => {
-            this.redraw$.next();
-        });
-
-        this.eventManager.on<ObjectDeletedEvent>('object:deleted', () => {
-            this.redraw$.next();
-        });
-
-        // Graph change events
-        this.eventManager.on<GraphChangedEvent>('graph:changed', () => {
-            this.redraw$.next();
-        });
-
-        // Door change events
-        this.eventManager.on('door:changed', () => {
-            this.logger.info('Door state changed, triggering redraw');
-            this.redraw$.next();
-        });
-
-        // Window change events
-        this.eventManager.on('window:changed', () => {
-            this.logger.info('Window state changed, triggering redraw');
-            this.redraw$.next();
-        });
-
-        // Subscribe to redraw events with debounce to prevent too frequent redraws
-        this.redraw$.pipe(
-            debounceTime(16) // ~60fps
-        ).subscribe(() => {
-            this.redrawCanvas();
-        });
-    }
-
-    private redrawCanvas(): void {
-        const layers = this.layers$.getValue();
-        if (!layers) return;
-
-        this.logger.info('Starting canvas redraw');
-
-        // Clear main layer
-        layers.mainLayer.destroyChildren();
-
-        // Render all objects in the correct order
-        this.renderObjects(layers.mainLayer);
-
-        // Batch draw for performance
-        layers.mainLayer.batchDraw();
-        
-        this.logger.info('Canvas redraw completed');
-    }
-
-    private renderObjects(layer: Layer): void {
-        const wallGraph = this.graphs.walls;
-        const doorStore = this.graphs.doors;
-        const windowStore = this.graphs.windows;
-
-        this.logger.info('Rendering objects:', {
-            walls: wallGraph.getAllWalls().length,
-            doors: doorStore.getAllDoors().length,
-            windows: windowStore.getAllWindows().length,
-            rooms: wallGraph.getAllRooms().length,
-            nodes: wallGraph.getAllNodes().length
-        });
-
-        // Render walls first (bottom layer)
-        wallGraph.getAllWalls().forEach(wall => {
-            wall.render(layer);
-        });
-
-        // Render doors and windows next (middle layer)
-        const doors = doorStore.getAllDoors();
-        const windows = windowStore.getAllWindows();
-        
-        this.logger.info('Rendering doors and windows:', {
-            doorCount: doors.length,
-            doorIds: doors.map(d => d.id),
-            windowCount: windows.length,
-            windowIds: windows.map(w => w.id)
-        });
-        
-        doors.forEach(door => {
-            this.logger.info('Rendering door:', {
-                id: door.id,
-                wallId: door.getData().wallId,
-                position: door.getData().position
-            });
-            door.render(layer);
-        });
-
-        windows.forEach(window => {
-            this.logger.info('Rendering window:', {
-                id: window.id,
-                wallId: window.getData().wallId,
-                position: window.getData().position
-            });
-            window.render(layer);
-        });
-
-        // Render rooms next (upper middle layer)
-        wallGraph.getAllRooms().forEach(room => {
-            room.render(layer);
-        });
-
-        // Render nodes last (top layer)
-        wallGraph.getAllNodes().forEach(node => {
-            node.render(layer);
-        });
-    }
-
-    setLayers(layers: CanvasLayers): void {
-        this.layers$.next(layers);
-        this.redrawCanvas();
-    }
-
-    getLayers(): CanvasLayers | null {
-        return this.layers$.getValue();
-    }
-
-    /**
-     * Serialize the current state to ProjectData format
-     */
-    serialize(): ProjectData {
-        const wallGraph = this.graphs.walls;
-        const doorStore = this.graphs.doors;
-        const windowStore = this.graphs.windows;
-
-        // Update last modified timestamp
-        this.projectMetadata.lastModified = new Date().toISOString();
-
-        return {
-            metadata: { ...this.projectMetadata },
-            settings: { ...this.projectSettings },
-            canvas: {
-                nodes: wallGraph.getAllNodes().map(node => node.toStorageData()),
-                walls: wallGraph.getAllWalls().map(wall => wall.toStorageData()),
-                doors: doorStore.getAllDoors().map(door => door.toStorageData()),
-                windows: windowStore.getAllWindows().map(window => window.toStorageData()),
-                rooms: wallGraph.getAllRooms().map(room => room.toStorageData())
-            }
-        };
-    }
-
-    /**
-     * Restore state from ProjectData
-     */
-    deserialize(data: ProjectData): void {
-        this.logger.info('Starting project deserialization');
-
-        // Clear current state
-        this.clear();
-
-        // Restore metadata and settings
-        this.projectMetadata = { ...data.metadata };
-        this.projectSettings = { ...data.settings };
-
-        const wallGraph = this.graphs.walls;
-
-        // Restore nodes first (they are needed for walls)
-        if (data.canvas.nodes) {
-            data.canvas.nodes.forEach(nodeData => {
-                const node = NodeObject.fromStorageData(nodeData);
-                wallGraph.addNode(node);
-            });
-        }
-
-        // Restore walls and connect them to nodes
-        data.canvas.walls.forEach(wallData => {
-            const wall = WallObject.fromStorageData(wallData);
-            wallGraph.addWall(wall);
-        });
-
-        // Restore doors
-        data.canvas.doors.forEach(doorData => {
-            const door = DoorObject.fromStorageData(doorData, wallGraph);
-            this.graphs.doors.addDoor(door);
-        });
-
-        // Restore windows
-        data.canvas.windows.forEach(windowData => {
-            const window = WindowObject.fromStorageData(windowData, wallGraph);
-            this.graphs.windows.addWindow(window);
-        });
-
-        // Restore rooms
-        data.canvas.rooms.forEach(roomData => {
-            const room = RoomObject.fromStorageData(roomData, wallGraph);
-            wallGraph.addRoom(room);
-        });
-
-        // Synchronize wall attachments after loading
-        this.synchronizeWallAttachments();
-
-        this.logger.info('Project deserialization completed', {
-            nodeCount: data.canvas.nodes?.length || 0,
-            wallCount: data.canvas.walls.length,
-            doorCount: data.canvas.doors.length,
-            windowCount: data.canvas.windows.length,
-            roomCount: data.canvas.rooms.length
-        });
-
-        // Trigger redraw
-        this.redraw$.next();
-    }
-
-    /**
-     * Synchronize all objects attached to walls (doors, windows) to ensure proper positioning
-     */
-    private synchronizeWallAttachments(): void {
-        const wallGraph = this.graphs.walls;
-        const doors = this.graphs.doors.getAllDoors();
-        const windows = this.graphs.windows.getAllWindows();
-
-        // Update door positions
-        doors.forEach(door => {
-            const wall = wallGraph.getWall(door.getData().wallId);
-            if (wall) {
-                door.updateWallReference(wall);
-            }
-        });
-
-        // Update window positions
-        windows.forEach(window => {
-            const wall = wallGraph.getWall(window.getData().wallId);
-            if (wall) {
-                window.updateWallReference(wall);
-            }
-        });
-
-        // Emit change events to ensure UI updates
-        this.eventManager.emit('door:changed', {});
-        this.eventManager.emit('window:changed', {});
-    }
-
-    /**
-     * Clear all objects from the canvas
-     */
-    clear(): void {
-        this.graphs.walls.clear();
-        this.graphs.doors.clear();
-        this.graphs.windows.clear();
-        this.redraw$.next();
-    }
-
-    /**
-     * Get current project metadata
-     */
-    getProjectMetadata(): ProjectMetadata {
-        return { ...this.projectMetadata };
-    }
-
-    /**
-     * Get current project settings
-     */
-    getProjectSettings(): ProjectSettings {
-        return { ...this.projectSettings };
-    }
-
-    /**
-     * Update project metadata
-     */
-    updateProjectMetadata(metadata: Partial<ProjectMetadata>): void {
+    // Project metadata methods
+    public updateProjectMetadata(metadata: Partial<typeof this.projectMetadata>): void {
         this.projectMetadata = {
             ...this.projectMetadata,
             ...metadata,
             lastModified: new Date().toISOString()
         };
+        
+        this.eventManager.emit('project:metadata:updated', { metadata: this.projectMetadata });
     }
 
-    /**
-     * Update project settings
-     */
-    updateProjectSettings(settings: Partial<ProjectSettings>): void {
-        this.projectSettings = {
-            ...this.projectSettings,
+    public getProjectMetadata(): typeof this.projectMetadata {
+        return { ...this.projectMetadata };
+    }
+
+    // Add getters for stores
+    public getWallGraph(): WallGraph {
+        return this.wallGraph;
+    }
+
+    public getDoorStore(): DoorStore {
+        return this.doorStore;
+    }
+
+    public getWindowStore(): WindowStore {
+        return this.windowStore;
+    }
+
+    // Add methods to handle project data
+    private async handleProjectLoaded(event: { projectId: string }): Promise<void> {
+        this.currentProjectId = event.projectId;
+        this.logger.info('Project loaded in CanvasStore', { projectId: event.projectId });
+    }
+
+    private async handleProjectSaved(event: { projectId: string }): Promise<void> {
+        this.logger.info('Project saved in CanvasStore', { projectId: event.projectId });
+    }
+
+    // Add serialization methods
+    public serialize(): ProjectData {
+        return {
+            metadata: {
+                id: this.currentProjectId || uuidv4(),
+                name: this.projectMetadata.name,
+                version: this.projectMetadata.version,
+                created: this.projectMetadata.created,
+                lastModified: new Date().toISOString()
+            },
+            settings: {
+                units: 'cm',
+                gridSize: 20,
+                snapToGrid: true,
+                defaultWallHeight: 280,
+                defaultWallThickness: 10
+            },
+            scene: this.getSceneData(),
+            viewer: this.viewerSettings
+        };
+    }
+
+    public deserialize(data: ProjectData): void {
+        try {
+            this.currentProjectId = data.metadata.id;
+            
+            // Handle old format where scene data might be under 'canvas'
+            const sceneData = (data as any).canvas 
+                ? this.migrateOldFormat(data)
+                : (data.scene || { walls: [], doors: [], windows: [], rooms: [] });
+            
+            // Load scene data
+            this.loadSceneData(sceneData);
+            
+            // Load viewer settings with defaults if not present
+            this.viewerSettings = data.viewer || {
+                camera: {
+                    position: { x: 500, y: 500, z: 500 },
+                    target: { x: 0, y: 0, z: 0 },
+                    zoom: 1
+                },
+                showGrid: true,
+                showAxes: true,
+                showGround: true
+            };
+            
+            // Emit settings updated event
+            this.eventManager.emit('viewer:settings:updated', { settings: this.viewerSettings });
+        } catch (error) {
+            this.logger.error('Failed to deserialize project data', error as Error);
+            throw new Error(`Failed to load project: ${(error as Error).message}`);
+        }
+    }
+
+    private migrateOldFormat(oldData: any): SceneData {
+        try {
+            const canvas = oldData.canvas || {};
+            
+            // Convert walls
+            const walls = (canvas.walls || []).map((wall: any) => ({
+                id: wall.id,
+                startPoint: wall.startPoint || { x: 0, y: 0 },
+                endPoint: wall.endPoint || { x: 0, y: 0 },
+                height: wall.height || 280,
+                thickness: wall.thickness || 10
+            }));
+
+            // Convert doors
+            const doors = (canvas.doors || []).map((door: any) => ({
+                id: door.id,
+                wallId: door.wallId,
+                position: door.position || { x: 0, y: 0 },
+                angle: door.angle || 0,
+                isFlipped: door.isFlipped || false,
+                properties: {
+                    width: door.width || 100,
+                    color: door.color || '#ff8c00',
+                    isOpen: door.isOpen || false,
+                    openDirection: door.openDirection || 'left'
+                }
+            }));
+
+            // Convert windows
+            const windows = (canvas.windows || []).map((window: any) => ({
+                id: window.id,
+                wallId: window.wallId,
+                position: window.position || { x: 0, y: 0 },
+                angle: window.angle || 0,
+                isFlipped: window.isFlipped || false,
+                properties: {
+                    width: window.width || 100,
+                    height: window.height || 150,
+                    color: window.color || '#FF69B4',
+                    isOpen: window.isOpen || false,
+                    openDirection: window.openDirection || 'left'
+                }
+            }));
+
+            // Convert rooms
+            const rooms = (canvas.rooms || []).map((room: any) => ({
+                id: room.id,
+                name: room.name || 'Room',
+                area: room.area || 0,
+                wallIds: room.wallIds || []
+            }));
+
+            return { walls, doors, windows, rooms };
+        } catch (error) {
+            this.logger.error('Failed to migrate old project format', error as Error);
+            // Return empty scene data if migration fails
+            return {
+                walls: [],
+                doors: [],
+                windows: [],
+                rooms: []
+            };
+        }
+    }
+
+    // Add method to get current scene data
+    public getSceneData(): SceneData {
+        return {
+            walls: this.wallGraph.getAllWalls().map(wall => {
+                const data = wall.getData();
+                return {
+                    id: wall.id,
+                    startPoint: data.startPoint,
+                    endPoint: data.endPoint,
+                    height: data.height || 280,
+                    thickness: data.thickness || 10
+                };
+            }),
+            doors: this.doorStore.getAllDoors().map(door => {
+                const data = door.getData();
+                return {
+                    id: door.id,
+                    wallId: data.wallId,
+                    position: data.position,
+                    angle: data.angle,
+                    isFlipped: data.isFlipped,
+                    properties: {
+                        width: data.properties.width,
+                        color: data.properties.color,
+                        isOpen: data.properties.isOpen,
+                        openDirection: data.properties.openDirection
+                    }
+                };
+            }),
+            windows: this.windowStore.getAllWindows().map(window => {
+                const data = window.getData();
+                return {
+                    id: window.id,
+                    wallId: data.wallId,
+                    position: data.position,
+                    angle: data.angle,
+                    isFlipped: data.isFlipped,
+                    properties: {
+                        width: data.properties.width,
+                        height: data.properties.height,
+                        color: data.properties.color,
+                        isOpen: data.properties.isOpen,
+                        openDirection: data.properties.openDirection
+                    }
+                };
+            }),
+            rooms: [] // TODO: Implement room detection and storage
+        };
+    }
+
+    // Add method to load scene data
+    public loadSceneData(sceneData: SceneData): void {
+        try {
+            // Ensure sceneData exists and has required properties
+            const validatedData: SceneData = {
+                walls: Array.isArray(sceneData.walls) ? sceneData.walls : [],
+                doors: Array.isArray(sceneData.doors) ? sceneData.doors : [],
+                windows: Array.isArray(sceneData.windows) ? sceneData.windows : [],
+                rooms: Array.isArray(sceneData.rooms) ? sceneData.rooms : []
+            };
+
+            // Clear existing data
+            this.clear();
+
+            // Create a map to store nodes by position
+            const nodeMap = new Map<string, NodeObject>();
+            const getOrCreateNode = (point: { x: number; y: number }): NodeObject => {
+                const key = `${point.x},${point.y}`;
+                if (!nodeMap.has(key)) {
+                    const node = new NodeObject(uuidv4(), point);
+                    nodeMap.set(key, node);
+                }
+                return nodeMap.get(key)!;
+            };
+
+            // First pass: Create all nodes and walls
+            validatedData.walls.forEach(wallData => {
+                if (!wallData.id || !wallData.startPoint || !wallData.endPoint) {
+                    this.logger.warn('Skipping invalid wall data', wallData);
+                    return;
+                }
+
+                // Get or create nodes for start and end points
+                const startNode = getOrCreateNode(wallData.startPoint);
+                const endNode = getOrCreateNode(wallData.endPoint);
+
+                // Create wall with the nodes
+                const wall = new WallObject(
+                    wallData.id,
+                    startNode.id,
+                    endNode.id,
+                    wallData.startPoint,
+                    wallData.endPoint,
+                    this.eventManager,
+                    wallData.thickness || 10,
+                    wallData.height || 280
+                );
+
+                // Add wall to graph
+                this.wallGraph.addWall(wall);
+
+                // Connect nodes to wall
+                startNode.addConnectedWall(wall.id);
+                endNode.addConnectedWall(wall.id);
+            });
+
+            // Second pass: Add nodes to the graph
+            nodeMap.forEach(node => {
+                this.wallGraph.addNode(node);
+            });
+
+            // Emit wall graph updated event
+            this.eventManager.emit('graph:changed', {
+                nodeCount: nodeMap.size,
+                wallCount: validatedData.walls.length,
+                roomCount: 0
+            });
+
+            // Load doors
+            validatedData.doors.forEach(doorData => {
+                if (!doorData.id || !doorData.wallId || !doorData.position) {
+                    this.logger.warn('Skipping invalid door data', doorData);
+                    return;
+                }
+
+                const door = new DoorObject({
+                    id: doorData.id,
+                    wallId: doorData.wallId,
+                    position: doorData.position,
+                    angle: doorData.angle,
+                    isFlipped: doorData.isFlipped,
+                    properties: {
+                        width: doorData.properties.width,
+                        color: doorData.properties.color,
+                        isOpen: doorData.properties.isOpen,
+                        openDirection: doorData.properties.openDirection
+                    },
+                    doorNumber: null
+                });
+                this.doorStore.addDoor(door);
+                // Emit door added event
+                this.eventManager.emit('door:created', { door });
+            });
+
+            // Emit doors changed event
+            this.eventManager.emit('door:changed', {});
+
+            // Load windows
+            validatedData.windows.forEach(windowData => {
+                if (!windowData.id || !windowData.wallId || !windowData.position) {
+                    this.logger.warn('Skipping invalid window data', windowData);
+                    return;
+                }
+
+                const window = new WindowObject({
+                    id: windowData.id,
+                    wallId: windowData.wallId,
+                    position: windowData.position,
+                    angle: windowData.angle,
+                    isFlipped: windowData.isFlipped,
+                    properties: {
+                        width: windowData.properties.width,
+                        height: windowData.properties.height,
+                        color: windowData.properties.color,
+                        isOpen: windowData.properties.isOpen,
+                        openDirection: windowData.properties.openDirection
+                    },
+                    windowNumber: null
+                });
+                this.windowStore.addWindow(window);
+                // Emit window added event
+                this.eventManager.emit('window:created', { window });
+            });
+
+            // Emit windows changed event
+            this.eventManager.emit('window:changed', {});
+
+            // Emit scene loaded event
+            this.eventManager.emit('scene:loaded', { sceneData: validatedData });
+        } catch (error) {
+            this.logger.error('Failed to load scene data', error as Error);
+            throw new Error(`Failed to load scene: ${(error as Error).message}`);
+        }
+    }
+
+    // Add method to update viewer settings
+    public updateViewerSettings(settings: Partial<ViewerSettings>): void {
+        this.viewerSettings = {
+            ...this.viewerSettings,
             ...settings
         };
-        this.redraw$.next();
+        this.eventManager.emit('viewer:settings:updated', { settings: this.viewerSettings });
+    }
+
+    // Add method to get viewer settings
+    public getViewerSettings(): ViewerSettings {
+        return { ...this.viewerSettings };
+    }
+
+    // Add method to clear all data
+    public clear(): void {
+        // Clear all nodes and walls first to prevent dangling references
+        this.wallGraph.clear();
+        
+        // Clear doors and windows using their store's clear methods
+        this.doorStore.clear();
+        this.windowStore.clear();
+        
+        this.currentProjectId = null;
+        
+        // Reset viewer settings to defaults
+        this.viewerSettings = {
+            camera: {
+                position: { x: 500, y: 500, z: 500 },
+                target: { x: 0, y: 0, z: 0 },
+                zoom: 1
+            },
+            showGrid: true,
+            showAxes: true,
+            showGround: true
+        };
+
+        // Reset project metadata
+        this.projectMetadata = {
+            name: 'Untitled Project',
+            created: new Date().toISOString(),
+            lastModified: new Date().toISOString(),
+            version: '2.0.0'
+        };
+
+        // Emit events to notify of cleared state
+        this.eventManager.emit('scene:loaded', { sceneData: { walls: [], doors: [], windows: [], rooms: [] } });
+        this.eventManager.emit('viewer:settings:updated', { settings: this.viewerSettings });
+        this.eventManager.emit('project:metadata:updated', { metadata: this.projectMetadata });
     }
 } 

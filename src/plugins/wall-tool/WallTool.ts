@@ -11,6 +11,7 @@ import { NodeObject } from './objects/NodeObject';
 import { WallObject } from './objects/WallObject';
 import { SelectionStore } from '../../store/SelectionStore';
 import { KonvaEventObject } from 'konva/lib/Node';
+import { v4 as uuidv4 } from 'uuid';
 
 enum WallToolMode {
     IDLE = 'idle',
@@ -25,7 +26,6 @@ interface WallToolState {
     startNode: NodeObject | null;
     activeNode: NodeObject | null;
     activeWall: WallObject | null;
-    previewLine: Line | null;
     snapThreshold: number;
     isDragging: boolean;
     selectedWall: WallObject | null;
@@ -65,8 +65,7 @@ export class WallTool extends BaseTool {
         startNode: null,
         activeNode: null,
         activeWall: null,
-        previewLine: null,
-        snapThreshold: 10,
+        snapThreshold: 100,
         isDragging: false,
         selectedWall: null,
         selectedNode: null,
@@ -134,12 +133,6 @@ export class WallTool extends BaseTool {
                     selectedWall.setSelected(true);
                     selectedWall.setHighlighted(true);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        selectedWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
                 } else {
                     // If the wall doesn't exist anymore, reset state
                     this.resetToolState();
@@ -149,12 +142,7 @@ export class WallTool extends BaseTool {
                     this.state.selectedWall.setSelected(false);
                     this.state.selectedWall.setHighlighted(false);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        this.state.selectedWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                 }
                 this.resetToolState();
             }
@@ -173,6 +161,9 @@ export class WallTool extends BaseTool {
                 break;
             case 'mouseup':
                 await this.handleMouseUp(event);
+                break;
+            case 'dblclick' as string:  // Type assertion to handle custom event type
+                await this.handleWallSplit(event.position);
                 break;
         }
     }
@@ -208,12 +199,7 @@ export class WallTool extends BaseTool {
                 source: 'wall-tool'
             });
             this.logger.info('handleMouseDown: Node hit 3', this.state.mode);
-            // Force visual update
-            const layers = this.canvasStore.getLayers();
-            if (layers?.mainLayer) {
-                hitNode.render(layers.mainLayer);
-                layers.mainLayer.batchDraw();
-            }
+
 
             this.logger.info('handleMouseDown: Node selected and prepared for movement:', {
                 nodeId: hitNode.id,
@@ -241,12 +227,7 @@ export class WallTool extends BaseTool {
                         source: 'wall-tool'
                     });
 
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        hitWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                 }
             } else if (this.state.mode === WallToolMode.IDLE) {
                 // Clear selection when clicking empty space
@@ -254,12 +235,7 @@ export class WallTool extends BaseTool {
                     this.state.selectedWall.setSelected(false);
                     this.state.selectedWall.setHighlighted(false);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        this.state.selectedWall.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                     
                     // Emit empty selection event
                     this.eventManager.emit('selection:changed', {
@@ -275,12 +251,7 @@ export class WallTool extends BaseTool {
                     this.state.selectedNode.setSelected(false);
                     this.state.selectedNode.setHighlighted(false);
                     
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        this.state.selectedNode.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
+
                 }
                 
                 // Create new node and start drawing
@@ -294,17 +265,20 @@ export class WallTool extends BaseTool {
     }
 
     private async handleMouseMove(event: CanvasEvent): Promise<void> {
-        this.logger.info('handleMouseMove: Mouse move', this.state.mode);
         if (!event.position) return;
-        this.logger.info('handleMouseMove: Mouse move 2');
         switch (this.state.mode) {
             case WallToolMode.MOVING_NODE:
-                this.logger.info('Moving node mouse move');
                 if (this.state.activeNode && this.state.isDragging && this.state.dragOffset) {
                     let targetPosition = {
                         x: event.position.x - this.state.dragOffset.x,
                         y: event.position.y - this.state.dragOffset.y
                     };
+
+                    // Check for snapping to other nodes
+                    const nearestNode = this.findNearestNode(targetPosition, this.state.activeNode);
+                    if (nearestNode && this.isWithinSnapThreshold(targetPosition, nearestNode.position)) {
+                        targetPosition = nearestNode.position;
+                    }
 
                     // Get connected walls and find a reference node for angle constraints
                     const connectedWalls = this.state.activeNode.getConnectedWalls()
@@ -326,6 +300,28 @@ export class WallTool extends BaseTool {
                     // Apply modifier constraints
                     targetPosition = this.applyModifierConstraints(targetPosition, referenceNode, event);
 
+                    // Prepare preview data for connected walls
+                    const previewWalls = connectedWalls.map(wall => {
+                        const wallData = wall.getData();
+                        const isStart = wall.getStartNodeId() === this.state.activeNode!.id;
+                        return {
+                            start: isStart ? targetPosition : wallData.startPoint,
+                            end: isStart ? wallData.endPoint : targetPosition
+                        };
+                    });
+
+                    // Emit single preview event for all connected walls
+                    this.eventManager.emit('canvas:preview', {
+                        data: {
+                            type: 'walls', // Changed to plural to indicate multiple walls
+                            walls: previewWalls.map(wall => ({
+                                start: wall.start,
+                                end: wall.end,
+                                thickness: 10 // Use default thickness
+                            }))
+                        }
+                    });
+
                     this.logger.info('Moving node:', {
                         nodeId: this.state.activeNode.id,
                         newPosition: targetPosition,
@@ -335,38 +331,6 @@ export class WallTool extends BaseTool {
                             alt: (event.originalEvent as MouseEvent)?.altKey
                         }
                     });
-
-                    // Update node position
-                    this.state.activeNode.setPosition(targetPosition.x, targetPosition.y);
-
-                    // Update connected walls
-                    connectedWalls.forEach(wall => {
-                        if (wall.getStartNodeId() === this.state.activeNode!.id) {
-                            wall.updateStartPoint(targetPosition);
-                        } else if (wall.getEndNodeId() === this.state.activeNode!.id) {
-                            wall.updateEndPoint(targetPosition);
-                        }
-
-                        // Emit wall:moved event
-                        this.eventManager.emit('wall:moved', {
-                            wallId: wall.id,
-                            wall: wall,
-                            newStartPoint: wall.getData().startPoint,
-                            newEndPoint: wall.getData().endPoint
-                        });
-                    });
-
-                    // Force visual update
-                    const layers = this.canvasStore.getLayers();
-                    if (layers?.mainLayer) {
-                        // Update walls
-                        connectedWalls.forEach(wall => {
-                            wall.render(layers.mainLayer);
-                        });
-                        // Update node
-                        this.state.activeNode.render(layers.mainLayer);
-                        layers.mainLayer.batchDraw();
-                    }
                 }
                 break;
             case WallToolMode.DRAWING:
@@ -377,7 +341,7 @@ export class WallTool extends BaseTool {
     }
 
     private async handleDrawingMouseMove(event: CanvasEvent): Promise<void> {
-        if (!event.position || !this.state.isDrawing || !this.state.previewLine || !this.state.startNode) return;
+        if (!event.position || !this.state.isDrawing || !this.state.startNode) return;
 
         const hitNode = this.findNodeAtPosition(event.position);
         let endPoint = hitNode ? hitNode.position : event.position;
@@ -385,16 +349,15 @@ export class WallTool extends BaseTool {
         // Apply modifier constraints using start node as reference
         endPoint = this.applyModifierConstraints(endPoint, this.state.startNode.position, event);
 
-        // Update preview line
-        this.state.previewLine.points([
-            this.state.startNode.position.x,
-            this.state.startNode.position.y,
-            endPoint.x,
-            endPoint.y
-        ]);
-
-        const layers = this.canvasStore.getLayers();
-        layers?.tempLayer.batchDraw();
+        // Emit preview event
+        this.eventManager.emit('canvas:preview', {
+            data: {
+                type: 'wall',
+                start: this.state.startNode.position,
+                end: endPoint,
+                thickness: 10 // Use default thickness
+            }
+        });
     }
 
     private calculateAngle(start: Point, end: Point): number {
@@ -420,7 +383,7 @@ export class WallTool extends BaseTool {
                 await this.handleDrawingMouseUp(event);
                 break;
             case WallToolMode.MOVING_NODE:
-                if (this.state.activeNode) {
+                if (this.state.activeNode && this.state.dragOffset) {
                     const graph = this.canvasStore.getWallGraph();
                     const nearestNode = this.findNodeAtPosition(event.position);
 
@@ -431,11 +394,67 @@ export class WallTool extends BaseTool {
                         nearestNode.setSelected(true);
                         nearestNode.setHighlighted(true);
                     } else {
+                        // Calculate final position
+                        let finalPosition = {
+                            x: event.position.x - this.state.dragOffset.x,
+                            y: event.position.y - this.state.dragOffset.y
+                        };
+
+                        // Apply final constraints
+                        finalPosition = this.applyModifierConstraints(
+                            finalPosition, 
+                            this.state.dragStartPosition || null, 
+                            event
+                        );
+
+                        // Update node position
+                        this.state.activeNode.setPosition(finalPosition.x, finalPosition.y);
+
+                        // Update connected walls
+                        const connectedWalls = this.state.activeNode.getConnectedWalls()
+                            .map(id => graph.getWall(id))
+                            .filter((wall): wall is WallObject => wall !== undefined);
+
+                        connectedWalls.forEach(wall => {
+                            if (wall.getStartNodeId() === this.state.activeNode!.id) {
+                                wall.updateStartPoint(finalPosition);
+                            } else if (wall.getEndNodeId() === this.state.activeNode!.id) {
+                                wall.updateEndPoint(finalPosition);
+                            }
+
+                            // Emit wall:moved event
+                            this.eventManager.emit('wall:moved', {
+                                wallId: wall.id,
+                                wall: wall,
+                                newStartPoint: wall.getData().startPoint,
+                                newEndPoint: wall.getData().endPoint
+                            });
+                        });
+
+                        // Emit node:changed event
+                        this.eventManager.emit('node:changed', {
+                            nodeId: this.state.activeNode.id,
+                            node: this.state.activeNode,
+                            position: finalPosition
+                        });
+
+                        // Emit graph:changed event to trigger a full update
+                        this.eventManager.emit('graph:changed', {
+                            nodeCount: graph.getAllNodes().length,
+                            wallCount: graph.getAllWalls().length,
+                            roomCount: 0,
+                            doorCount: this.canvasStore.getDoorStore().getAllDoors().length,
+                            windowCount: this.canvasStore.getWindowStore().getAllWindows().length
+                        });
+
                         // Keep the moved node selected
                         this.state.selectedNode = this.state.activeNode;
                         this.state.activeNode.setSelected(true);
                         this.state.activeNode.setHighlighted(true);
                     }
+
+                    // Clear preview
+                    this.eventManager.emit('canvas:preview', { data: null });
 
                     this.logger.info('Node movement completed:', {
                         nodeId: this.state.selectedNode.id,
@@ -508,11 +527,7 @@ export class WallTool extends BaseTool {
         // Remove the source node
         graph.removeNode(sourceNode.id);
 
-        // Trigger redraw
-        const layers = this.canvasStore.getLayers();
-        if (layers) {
-            layers.mainLayer.batchDraw();
-        }
+
     }
 
     private findNodeAtPosition(position: Point): NodeObject | null {
@@ -557,28 +572,22 @@ export class WallTool extends BaseTool {
     }
 
     private initPreviewLine(startPoint: Point): void {
-        const layers = this.canvasStore.getLayers();
-        if (!layers) return;
-
-        this.state.previewLine = new Line({
-            points: [startPoint.x, startPoint.y, startPoint.x, startPoint.y],
-            stroke: '#666',
-            strokeWidth: 2,
-            dash: [5, 5],
+        // Emit initial preview event
+        this.eventManager.emit('canvas:preview', {
+            data: {
+                type: 'wall',
+                start: startPoint,
+                end: startPoint,
+                thickness: 10
+            }
         });
-
-        layers.tempLayer.add(this.state.previewLine);
-        layers.tempLayer.batchDraw();
     }
 
     private cleanupPreviewLine(): void {
-        if (this.state.previewLine) {
-            this.state.previewLine.destroy();
-            this.state.previewLine = null;
-
-            const layers = this.canvasStore.getLayers();
-            layers?.tempLayer.batchDraw();
-        }
+        // Clear preview
+        this.eventManager.emit('canvas:preview', {
+            data: null
+        });
     }
 
     private findWallAtPosition(position: Point): WallObject | null {
@@ -594,47 +603,54 @@ export class WallTool extends BaseTool {
         return null;
     }
 
-    private async handleWallSplit(position: Point): Promise<void> {
-        if (!this.state.activeWall) return;
+    private async handleWallSplit(point: Point): Promise<void> {
+        // Find the wall that was clicked
+        const wall = this.findWallAtPosition(point);
+        if (!wall) return;
 
-        const graph = this.canvasStore.getWallGraph();
-        const originalWallId = this.state.activeWall.id;
-        const wallData = this.state.activeWall.getData();
+        // Get the wall data before removing it
+        const wallData = wall.getData();
+        const wallId = wall.id;
 
         // Create new node at split point
-        const newNode = graph.createNode(position);
+        const newNode = this.canvasStore.getWallGraph().createNode(point);
+        if (!newNode) return;
 
-        // Create two new walls connecting the new node to the original wall's nodes
-        const wall1 = graph.createWall(wallData.startNodeId, newNode.id);
-        const wall2 = graph.createWall(newNode.id, wallData.endNodeId);
+        // Create two new walls connecting to the new node
+        const wall1 = this.canvasStore.getWallGraph().createWall(
+            wallData.startNodeId,
+            newNode.id
+        );
 
-        if (wall1 && wall2) {
-            // Remove the original wall
-            graph.removeWall(originalWallId);
+        const wall2 = this.canvasStore.getWallGraph().createWall(
+            newNode.id,
+            wallData.endNodeId
+        );
 
-            // Reset tool state and selection
-            this.state.activeWall = null;
-            this.state.mode = WallToolMode.IDLE;
-            this.selectionStore.clearSelection();
-
-            // Emit graph changed event to ensure proper state update
-            this.eventManager.emit('graph:changed', {
-                nodeCount: graph.getAllNodes().length,
-                wallCount: graph.getAllWalls().length
-            });
-
-            // Force visual update
-            const layers = this.canvasStore.getLayers();
-            if (layers?.mainLayer) {
-                layers.mainLayer.batchDraw();
-            }
-
-            this.logger.info('Wall split completed:', {
-                originalWallId,
-                newNodeId: newNode.id,
-                newWallIds: [wall1.id, wall2.id]
-            });
+        if (!wall1 || !wall2) {
+            this.logger.error('Failed to create new walls during split');
+            return;
         }
+
+        // Emit wall:split event before removing the original wall
+        this.eventManager.emit('wall:split', {
+            originalWallId: wallId,
+            newWalls: [
+                { id: wall1.id, wall: wall1 },
+                { id: wall2.id, wall: wall2 }
+            ]
+        });
+
+        // Remove the original wall
+        this.canvasStore.getWallGraph().removeWall(wallId);
+
+        // Emit graph changed event
+        this.eventManager.emit('graph:changed', {
+            nodeCount: this.canvasStore.getWallGraph().getAllNodes().length,
+            wallCount: this.canvasStore.getWallGraph().getAllWalls().length,
+            doorCount: this.canvasStore.getDoorStore().getAllDoors().length,
+            windowCount: this.canvasStore.getWindowStore().getAllWindows().length
+        });
     }
 
     private snapToGrid(position: Point): Point {
@@ -674,8 +690,7 @@ export class WallTool extends BaseTool {
             startNode: null,
             activeNode: null,
             activeWall: null,
-            previewLine: null,
-            snapThreshold: 10,
+            snapThreshold: 20,
             isDragging: false,
             selectedWall: null,
             selectedNode: null,

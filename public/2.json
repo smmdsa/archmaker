@@ -1,0 +1,222 @@
+{
+  "metadata": {
+    "id": "f78db5f8-fa4b-46d0-b11c-107813311f5c",
+    "name": "Untitled Project",
+    "version": "2.0.0",
+    "created": "2025-01-15T07:40:30.765Z",
+    "lastModified": "2025-01-15T07:40:30.765Z"
+  },
+  "settings": {
+    "units": "cm",
+    "gridSize": 20,
+    "snapToGrid": true,
+    "defaultWallHeight": 280,
+    "defaultWallThickness": 10
+  },
+  "scene": {
+    "walls": [
+      {
+        "id": "02f3f325-c1a5-4924-8593-738da7d68b9f",
+        "startPoint": {
+          "x": 49.80537626727346,
+          "y": -186.39763163688622
+        },
+        "endPoint": {
+          "x": 105.53748790231914,
+          "y": 56.25372071502089
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "35d8308b-6be4-4904-8cad-d2236840adb2",
+        "startPoint": {
+          "x": 174.30475703388407,
+          "y": -279.2076416383758
+        },
+        "endPoint": {
+          "x": 365.7438297818551,
+          "y": -35.585177968903544
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "b69fb174-fe9b-43c6-b953-264d907e0a91",
+        "startPoint": {
+          "x": 2.269249065476572,
+          "y": -329.0081348099069
+        },
+        "endPoint": {
+          "x": 49.80537626727346,
+          "y": -186.39763163688622
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "57234e53-ec3f-4823-8285-79e3a07809d0",
+        "startPoint": {
+          "x": 126.76862983208733,
+          "y": -206.77056066160333
+        },
+        "endPoint": {
+          "x": 174.30475703388407,
+          "y": -279.2076416383758
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "b8ab1ebd-fc09-4df2-af17-58f723e680f6",
+        "startPoint": {
+          "x": 124.5050047272398,
+          "y": -193.18860797845855
+        },
+        "endPoint": {
+          "x": 2.269249065476572,
+          "y": -329.0081348099069
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "95d9e5e6-685b-48d1-8fa9-43e6b9dc87b8",
+        "startPoint": {
+          "x": 185.62288255812135,
+          "y": -0.7776116339068011
+        },
+        "endPoint": {
+          "x": 365.7438297818551,
+          "y": -35.585177968903544
+        },
+        "height": 280,
+        "thickness": 10
+      },
+      {
+        "id": "3790dd49-ffee-4b1d-ba97-25c6c2c037e3",
+        "startPoint": {
+          "x": 105.53748790231914,
+          "y": 56.25372071502089
+        },
+        "endPoint": {
+          "x": 185.62288255812135,
+          "y": -0.7776116339068011
+        },
+        "height": 280,
+        "thickness": 10
+      }
+    ],
+    "doors": [
+      {
+        "id": "eada1efb-72c5-4fb9-b842-c1c95bc002b4",
+        "wallId": "55d325de-d189-4c6a-9fe8-4dc970228808",
+        "position": 0.6292827124367278,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 200,
+          "isFlipped": false
+        }
+      },
+      {
+        "id": "84f071d6-2c7d-4f5f-b71a-7a978e80714e",
+        "wallId": "003b1567-234e-4ad6-8393-a29484789a7a",
+        "position": 0.5032626024093191,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 200,
+          "isFlipped": false
+        }
+      },
+      {
+        "id": "590c58fd-b0b7-4e19-b64d-ed848e695d26",
+        "wallId": "e9eb60fc-5fbc-4a67-83ba-72e34a9c34a6",
+        "position": 0.5198972122576544,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 200,
+          "isFlipped": false
+        }
+      },
+      {
+        "id": "6a397ccc-34a1-4f63-a7d6-ff3657a778b6",
+        "wallId": "0c546a42-5924-47f2-aa24-9b670be63afe",
+        "position": 0.4728586601206195,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 200,
+          "isFlipped": false
+        }
+      },
+      {
+        "id": "487b2bd5-70f9-477d-ab84-adb5ea575244",
+        "wallId": "7ec9f084-45ff-45be-a305-484919fc7877",
+        "position": 0.5187833152938812,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 200,
+          "isFlipped": false
+        }
+      }
+    ],
+    "windows": [
+      {
+        "id": "f94b33cf-bf2e-4765-89ca-000f1321f56d",
+        "wallId": "f4123aad-2278-4725-bec6-0f645b49a249",
+        "position": 0.414250592742175,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 150,
+          "sillHeight": 100
+        }
+      },
+      {
+        "id": "7d4b4a11-c823-4a07-ae03-76ef299cac68",
+        "wallId": "8594fc7f-a830-4bc2-b9d5-2c8687ec40c8",
+        "position": 0.5182353113354334,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 150,
+          "sillHeight": 100
+        }
+      },
+      {
+        "id": "8bf0e01e-f00d-4755-b8a3-d95f750f4339",
+        "wallId": "a323085d-da1c-4f40-bb73-06af07c01616",
+        "position": 0.3953841998497597,
+        "angle": 0,
+        "properties": {
+          "width": 100,
+          "height": 150,
+          "sillHeight": 100
+        }
+      }
+    ],
+    "rooms": []
+  },
+  "viewer": {
+    "camera": {
+      "position": {
+        "x": 500,
+        "y": 500,
+        "z": 500
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "zoom": 1
+    },
+    "showGrid": true,
+    "showAxes": true,
+    "showGround": true
+  }
+}
