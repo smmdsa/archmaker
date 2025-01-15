@@ -1,151 +1,174 @@
 import { Point } from '../../../core/types/geometry';
-import { IWall, WallProperties } from '../interfaces/IWall';
+import { NodeObject } from '../objects/NodeObject';
+import { WallObject } from '../objects/WallObject';
 import { IEventManager } from '../../../core/interfaces/IEventManager';
 import { ILogger } from '../../../core/interfaces/ILogger';
-import { WallGraph } from '../models/WallGraph';
-import { getDistance } from '../utils/geometry';
-import { WallCreationParams, IWallService } from './IWallService';
-import { Wall } from '../models/Wall';
-import { IWallProperties } from '../models/interfaces';
-import { CanvasStore } from '../../../store/CanvasStore';
-import { WallNode } from '../models/WallNode';
+import { Line } from 'konva/lib/shapes/Line';
 
-export class WallService implements IWallService {
+export class WallService {
+    // Constants for snapping and constraints
+    private readonly RECT_ANGLE_SNAP = 90; // For CTRL key
+    private readonly ANGLE_SNAP = 15;      // For SHIFT key
+    private readonly GRID_SNAP = 10;       // For ALT key
+
     constructor(
         private readonly eventManager: IEventManager,
-        private readonly logger: ILogger,
-        private readonly canvasStore: CanvasStore
-    ) {
-        this.logger.info('WallService initialized');
+        private readonly logger: ILogger
+    ) {}
+
+    // Wall calculations
+    calculateAngle(start: Point, end: Point): number {
+        return Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
     }
 
-    private toIWall(wall: Wall): IWall {
+    calculateDistance(start: Point, end: Point): number {
+        return Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+    }
+
+    getDistance(p1: Point, p2: Point): number {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Snapping and constraints
+    snapToGrid(position: Point): Point {
         return {
-            id: wall.getId(),
-            startPoint: wall.getStartNode().getPosition(),
-            endPoint: wall.getEndNode().getPosition(),
-            thickness: wall.getProperties().thickness,
-            height: wall.getProperties().height,
-            properties: wall.getProperties()
+            x: Math.round(position.x / this.GRID_SNAP) * this.GRID_SNAP,
+            y: Math.round(position.y / this.GRID_SNAP) * this.GRID_SNAP
         };
     }
 
-    async createWall(params: WallCreationParams): Promise<IWall> {
+    snapDistanceToGrid(start: Point, end: Point): Point {
+        const angle = this.calculateAngle(start, end);
+        const distance = this.calculateDistance(start, end);
+        const snappedDistance = Math.round(distance / this.GRID_SNAP) * this.GRID_SNAP;
+        
+        const radians = angle * Math.PI / 180;
+        return {
+            x: start.x + snappedDistance * Math.cos(radians),
+            y: start.y + snappedDistance * Math.sin(radians)
+        };
+    }
+
+    applyModifierConstraints(
+        position: Point,
+        referencePoint: Point | null,
+        modifiers: { ctrl: boolean; shift: boolean; alt: boolean }
+    ): Point {
+        if (!referencePoint) return position;
+
+        let result = { ...position };
+
+        // Grid snapping (ALT key)
+        if (modifiers.alt) {
+            result = this.snapToGrid(result);
+        }
+
+        // Angle constraints
+        if (modifiers.ctrl || modifiers.shift) {
+            const angle = this.calculateAngle(referencePoint, result);
+            const distance = this.calculateDistance(referencePoint, result);
+            let snappedAngle = angle;
+
+            if (modifiers.ctrl) {
+                // Snap to 90-degree angles
+                snappedAngle = Math.round(angle / this.RECT_ANGLE_SNAP) * this.RECT_ANGLE_SNAP;
+            } else if (modifiers.shift) {
+                // Snap to 15-degree angles
+                snappedAngle = Math.round(angle / this.ANGLE_SNAP) * this.ANGLE_SNAP;
+            }
+
+            const radians = snappedAngle * Math.PI / 180;
+            result = {
+                x: referencePoint.x + distance * Math.cos(radians),
+                y: referencePoint.y + distance * Math.sin(radians)
+            };
+        }
+
+        return result;
+    }
+
+    // Node operations
+    async mergeNodes(sourceNode: NodeObject, targetNode: NodeObject): Promise<void> {
         try {
-            const graph = this.canvasStore.getWallGraph();
+            // Update all walls connected to source node to use target node
+            const connectedWalls = sourceNode.getConnectedWalls();
+            for (const wall of connectedWalls) {
+                if (wall.startNode === sourceNode) {
+                    wall.startNode = targetNode;
+                }
+                if (wall.endNode === sourceNode) {
+                    wall.endNode = targetNode;
+                }
+                targetNode.addConnectedWall(wall);
+            }
 
-            // Create nodes for start and end points
-            const startNode = graph.addNode(params.startPoint.x, params.startPoint.y);
-            const endNode = graph.addNode(params.endPoint.x, params.endPoint.y);
-
-            // Create wall between nodes
-            const wall = graph.createWall(startNode, endNode, {
-                thickness: params.thickness || 10,
-                height: params.height || 280,
-                ...params.properties
+            // Remove the source node
+            sourceNode.dispose();
+            
+            this.logger.info('Nodes merged successfully', {
+                sourceId: sourceNode.id,
+                targetId: targetNode.id
             });
-
-            const iwall = this.toIWall(wall);
-            await this.eventManager.emit('wall:created', { wall: iwall });
-            this.logger.info('Wall created', { wallId: wall.getId() });
-            return iwall;
         } catch (error) {
-            this.logger.error('Failed to create wall', error as Error);
+            this.logger.error('Failed to merge nodes', error as Error);
             throw error;
         }
     }
 
-    async updateWall(wallId: string, updates: Partial<IWall>): Promise<IWall> {
-        const graph = this.canvasStore.getWallGraph();
-        const wall = graph.getWall(wallId);
-        if (!wall) {
-            throw new Error(`Wall with id ${wallId} not found`);
-        }
-
-        try {
-            // Update wall properties
-            const props: IWallProperties = { ...wall.getProperties() };
-            if (updates.thickness) props.thickness = updates.thickness;
-            if (updates.height) props.height = updates.height;
-            if (updates.properties) Object.assign(props, updates.properties);
-            wall.updateProperties(props);
-            
-            const iwall = this.toIWall(wall);
-            await this.eventManager.emit('wall:updated', { wall: iwall });
-            this.logger.info('Wall updated', { wallId });
-            return iwall;
-        } catch (error) {
-            this.logger.error('Failed to update wall', error as Error);
-            throw error;
-        }
-    }
-
-    async deleteWall(wallId: string): Promise<void> {
-        try {
-            const graph = this.canvasStore.getWallGraph();
-            const wall = graph.getWall(wallId);
-            if (!wall) {
-                throw new Error(`Wall with id ${wallId} not found`);
-            }
-            
-            graph.removeWall(wallId);
-            await this.eventManager.emit('wall:deleted', { wallId });
-            this.logger.info('Wall deleted', { wallId });
-        } catch (error) {
-            this.logger.error('Failed to delete wall', error as Error);
-            throw error;
-        }
-    }
-
-    getWall(wallId: string): IWall | undefined {
-        const graph = this.canvasStore.getWallGraph();
-        const wall = graph.getWall(wallId);
-        return wall ? this.toIWall(wall) : undefined;
-    }
-
-    getAllWalls(): IWall[] {
-        const graph = this.canvasStore.getWallGraph();
-        return graph.getAllWalls().map(wall => this.toIWall(wall));
-    }
-
-    getSnapPoints(): Point[] {
-        const graph = this.canvasStore.getWallGraph();
-        return graph.getAllNodes().map((node: WallNode) => node.getPosition());
-    }
-
-    getNearestSnapPoint(point: Point, threshold: number): Point | null {
-        const graph = this.canvasStore.getWallGraph();
-        const nodes = graph.getAllNodes();
-        let nearestPoint: Point | null = null;
-        let minDistance = threshold;
-
-        nodes.forEach((node: WallNode) => {
-            const nodePos = node.getPosition();
-            const distance = getDistance(point, nodePos);
-            if (distance < minDistance) {
-                minDistance = distance;
-                nearestPoint = nodePos;
-            }
+    // Wall preview
+    createPreviewLine(startPoint: Point): Line {
+        return new Line({
+            points: [startPoint.x, startPoint.y, startPoint.x, startPoint.y],
+            stroke: '#2563eb',
+            strokeWidth: 2,
+            dash: [5, 5],
+            listening: false
         });
-
-        return nearestPoint;
     }
 
-    onWallCreated(callback: (wall: IWall) => void): () => void {
-        const handler = ({ wall }: { wall: IWall }) => callback(wall);
-        this.eventManager.on('wall:created', handler);
-        return () => this.eventManager.off('wall:created', handler);
+    updatePreviewLine(line: Line, startPoint: Point, endPoint: Point): void {
+        line.points([startPoint.x, startPoint.y, endPoint.x, endPoint.y]);
     }
 
-    onWallUpdated(callback: (wall: IWall) => void): () => void {
-        const handler = ({ wall }: { wall: IWall }) => callback(wall);
-        this.eventManager.on('wall:updated', handler);
-        return () => this.eventManager.off('wall:updated', handler);
-    }
-
-    onWallDeleted(callback: (wallId: string) => void): () => void {
-        const handler = ({ wallId }: { wallId: string }) => callback(wallId);
-        this.eventManager.on('wall:deleted', handler);
-        return () => this.eventManager.off('wall:deleted', handler);
+    // Wall splitting
+    async splitWall(wall: WallObject, splitPoint: Point): Promise<void> {
+        try {
+            // Create new node at split point
+            const newNode = new NodeObject(splitPoint);
+            
+            // Create two new walls using the split point
+            const wallStart = wall.startNode;
+            const wallEnd = wall.endNode;
+            
+            const newWall1 = new WallObject(wallStart, newNode);
+            const newWall2 = new WallObject(newNode, wallEnd);
+            
+            // Copy properties from original wall
+            newWall1.copyPropertiesFrom(wall);
+            newWall2.copyPropertiesFrom(wall);
+            
+            // Remove original wall
+            wall.dispose();
+            
+            this.logger.info('Wall split successfully', {
+                originalWallId: wall.id,
+                newWall1Id: newWall1.id,
+                newWall2Id: newWall2.id,
+                newNodeId: newNode.id
+            });
+            
+            // Emit wall split event
+            this.eventManager.emit('wall:split', {
+                originalWallId: wall.id,
+                newWall1Id: newWall1.id,
+                newWall2Id: newWall2.id,
+                newNodeId: newNode.id
+            });
+        } catch (error) {
+            this.logger.error('Failed to split wall', error as Error);
+            throw error;
+        }
     }
 } 

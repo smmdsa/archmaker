@@ -344,4 +344,20 @@ export class WallObject extends BaseObject {
             data.height
         );
     }
+
+    dispose(): void {
+        // Clean up Konva objects
+        if (this.wallLine) {
+            this.wallLine.destroy();
+            this.wallLine = null;
+        }
+        if (this.lengthLabel) {
+            this.lengthLabel.destroy();
+            this.lengthLabel = null;
+        }
+        if (this.wallGroup) {
+            this.wallGroup.destroy();
+            this.wallGroup = null;
+        }
+    }
 } 

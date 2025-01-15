@@ -112,4 +112,14 @@ export class NodeObject extends BaseObject {
 
         return node;
     }
+
+    dispose(): void {
+        // Clear connected walls
+        this.connectedWallIds.clear();
+        
+        // No need to clean up rendering resources since Canvas2D handles that
+        // But we'll make sure all references are cleared
+        this._position = { x: 0, y: 0 };
+        this._bounds = { x: 0, y: 0, width: 0, height: 0 };
+    }
 } 
