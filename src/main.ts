@@ -108,13 +108,16 @@ async function initializeApp() {
         const pluginManager = new PluginManager(logger, eventManager, uiManager);
         const toolService = new ToolService(eventManager, logger);
         const topbarService = new TopbarService(eventManager, logger, configManager);
-        const drawingManager = new DrawingManager(eventManager, logger);
-        logger.info('Drawing Manager initialized');
 
         // Inicializar servicios en orden
         logger.info('Starting service initialization sequence...');
         await uiManager.initialize();
         logger.info('UI Manager initialized');
+
+        // Initialize topbar service first since other services might need it
+        await topbarService.initialize();
+        logger.info('Topbar Service initialized');
+
         await toolService.initialize();
         logger.info('Tool Service initialized');
         await pluginManager.initialize();

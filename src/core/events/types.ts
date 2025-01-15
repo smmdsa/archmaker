@@ -1,7 +1,4 @@
-export interface Point {
-    x: number;
-    y: number;
-}
+import { Point } from '../types/geometry';
 
 export interface Wall {
     id: string;

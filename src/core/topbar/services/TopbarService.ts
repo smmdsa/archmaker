@@ -1,74 +1,65 @@
-import { ITopbarItem } from '../interfaces/ITopbarItem';
-import { TopbarRepository } from '../repositories/TopbarRepository';
-import { topbarRegistry } from '../registry/TopbarRegistry';
 import { IEventManager } from '../../interfaces/IEventManager';
+import { topbarRegistry } from '../registry/TopbarRegistry';
 import { ILogger } from '../../interfaces/ILogger';
 import { IConfigManager } from '../../interfaces/IConfig';
+import { ITopbarItem } from '../interfaces/ITopbarItem';
 
 export class TopbarService {
-    private repository: TopbarRepository;
+    private items: ITopbarItem[] = [];
 
     constructor(
         private readonly eventManager: IEventManager,
         private readonly logger: ILogger,
         private readonly configManager: IConfigManager
-    ) {
-        this.repository = TopbarRepository.getInstance();
-        this.initialize();
-    }
+    ) {}
 
-    private initialize(): void {
-        // Crear instancias de todos los items registrados
-        const items = topbarRegistry.createItems(this.eventManager, this.logger, this.configManager);
-        items.forEach(item => this.registerItem(item));
-    }
-
-    registerItem(item: ITopbarItem): void {
+    async initialize(): Promise<void> {
         try {
-            this.repository.registerItem(item);
-            item.initialize();
-            this.eventManager.emit('topbar:updated', { items: this.getAllItems() });
-            this.logger.debug(`Registered topbar item: ${item.id}`);
+            this.logger.info('TopbarService: Initializing Topbar Service');
+            
+            // Create items
+            this.items = topbarRegistry.createItems(this.eventManager, this.logger, this.configManager);
+            this.logger.info(`TopbarService: Created ${this.items.length} topbar items`);
+            
+            // Initialize each item
+            for (const item of this.items) {
+                try {
+                    await item.initialize();
+                    this.logger.info(`TopbarService: Initialized item ${item.id}`);
+                } catch (error) {
+                    this.logger.error(`TopbarService: Failed to initialize item ${item.id}`, error as Error);
+                    throw error;
+                }
+            }
+            
+            this.logger.info('TopbarService: All items initialized');
         } catch (error) {
-            this.logger.error(`Failed to register topbar item: ${item.id}`, error as Error);
+            this.logger.error('TopbarService: Failed to initialize Topbar Service', error as Error);
             throw error;
         }
-    }
-
-    unregisterItem(itemId: string): void {
-        try {
-            this.repository.unregisterItem(itemId);
-            this.eventManager.emit('topbar:updated', { items: this.getAllItems() });
-            this.logger.debug(`Unregistered topbar item: ${itemId}`);
-        } catch (error) {
-            this.logger.error(`Failed to unregister topbar item: ${itemId}`, error as Error);
-            throw error;
-        }
-    }
-
-    getItem(itemId: string): ITopbarItem | undefined {
-        return this.repository.getItem(itemId);
-    }
-
-    getAllItems(): ITopbarItem[] {
-        return this.repository.getAllItems();
     }
 
     getItemsBySection(section: string): ITopbarItem[] {
-        return this.repository.getItemsBySection(section);
+        return this.items
+            .filter(item => item.manifest.section === section)
+            .sort((a, b) => (a.manifest.order || 0) - (b.manifest.order || 0));
     }
 
     getSections(): string[] {
-        return this.repository.getSections();
+        const sections = new Set<string>();
+        this.items.forEach(item => sections.add(item.manifest.section));
+        return Array.from(sections);
     }
 
-    clear(): void {
+    async dispose(): Promise<void> {
         try {
-            this.repository.clear();
-            this.eventManager.emit('topbar:updated', { items: [] });
-            this.logger.debug('Cleared all topbar items');
+            for (const item of this.items) {
+                await item.dispose();
+            }
+            this.items = [];
+            this.logger.info('Topbar Service disposed');
         } catch (error) {
-            this.logger.error('Failed to clear topbar items', error as Error);
+            this.logger.error('Failed to dispose Topbar Service', error as Error);
             throw error;
         }
     }
