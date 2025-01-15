@@ -11,6 +11,15 @@ import { WallObject } from './objects/WallObject';
 import { SelectionStore } from '../../store/SelectionStore';
 import { WallCommandService } from './services/WallCommandService';
 import { WallValidationService } from './services/WallValidationService';
+import { CommandManager } from './commands/CommandManager';
+import { 
+    SplitWallCommand,
+    MoveNodeCommand,
+    CreateWallCommand,
+    DeleteWallCommand,
+    MergeNodesCommand,
+    CreateNodeCommand
+} from './commands/Command';
 
 enum WallToolMode {
     IDLE = 'idle',
@@ -60,6 +69,7 @@ export class WallTool extends BaseTool {
     private readonly selectionStore: SelectionStore;
     private readonly commandService: WallCommandService;
     private readonly validationService: WallValidationService;
+    private readonly commandManager: CommandManager;
     private state: WallToolState = {
         mode: WallToolMode.IDLE,
         isDrawing: false,
@@ -89,12 +99,30 @@ export class WallTool extends BaseTool {
         this.selectionStore = SelectionStore.getInstance(eventManager, logger);
         this.commandService = new WallCommandService(eventManager, logger);
         this.validationService = new WallValidationService(eventManager, logger);
+        this.commandManager = new CommandManager(logger);
 
         // Subscribe to wall removal events
         this.eventManager.on('wall:removed', (event: { wallId: string }) => {
             // If the removed wall was selected, reset the tool state
             if (this.state.selectedWall?.id === event.wallId) {
                 this.resetToolState();
+            }
+        });
+
+        // Subscribe to keyboard events for undo/redo
+        this.eventManager.on('keyboard:keydown', async (event: { key: string, ctrlKey: boolean }) => {
+            if (event.ctrlKey) {
+                try {
+                    if (event.key === 'z') {
+                        this.logger.info('Ctrl+Z pressed, attempting to undo last command');
+                        await this.commandManager.undo();
+                    } else if (event.key === 'y') {
+                        this.logger.info('Ctrl+Y pressed, attempting to redo last command');
+                        await this.commandManager.redo();
+                    }
+                } catch (error) {
+                    this.logger.error('Error during undo/redo operation:', error instanceof Error ? error : new Error(String(error)));
+                }
             }
         });
 
@@ -359,8 +387,15 @@ export class WallTool extends BaseTool {
                     );
 
                     if (nearestNode) {
-                        // Merge nodes if we're dropping onto another node
-                        await this.commandService.mergeNodes(this.state.activeNode, nearestNode);
+                        // Merge nodes using command system
+                        const command = new MergeNodesCommand(
+                            { commandService: this.commandService },
+                            this.state.activeNode,
+                            nearestNode
+                        );
+                        await this.commandManager.execute(command);
+
+                        // Update selection
                         this.state.selectedNode = nearestNode;
                         nearestNode.setSelected(true);
                         nearestNode.setHighlighted(true);
@@ -378,8 +413,13 @@ export class WallTool extends BaseTool {
                             event
                         );
 
-                        // Update node position using command service
-                        await this.commandService.updateNode(this.state.activeNode, finalPosition);
+                        // Move node using command system
+                        const command = new MoveNodeCommand(
+                            { commandService: this.commandService },
+                            this.state.activeNode,
+                            finalPosition
+                        );
+                        await this.commandManager.execute(command);
 
                         // Keep the moved node selected
                         this.state.selectedNode = this.state.activeNode;
@@ -404,33 +444,60 @@ export class WallTool extends BaseTool {
     private async handleDrawingMouseUp(event: CanvasEvent): Promise<void> {
         if (!event.position || !this.state.isDrawing || !this.state.startNode) return;
 
-        const graph = this.canvasStore.getWallGraph();
-        let endNode: NodeObject;
+        try {
+            const graph = this.canvasStore.getWallGraph();
+            let endNode: NodeObject | null = null;
+            let isNewEndNode = false;
 
-        // Check if we're snapping to an existing node
-        const hitNode = this.validationService.findNearestNode(
-            event.position,
-            graph.getAllNodes(),
-            this.state.snapThreshold
-        );
+            // Check if we're snapping to an existing node
+            const hitNode = this.validationService.findNearestNode(
+                event.position,
+                graph.getAllNodes(),
+                this.state.snapThreshold
+            );
 
-        if (hitNode) {
-            endNode = hitNode;
-        } else {
-            // Create new end node using command service
-            endNode = await this.commandService.createNode(event.position);
+            if (hitNode) {
+                endNode = hitNode;
+            } else {
+                // Create new end node using command system
+                const createNodeCommand = new CreateNodeCommand(
+                    { commandService: this.commandService },
+                    event.position
+                );
+                await this.commandManager.execute(createNodeCommand);
+                endNode = createNodeCommand.getNode();
+                isNewEndNode = true;
+            }
+
+            // Create wall between nodes if they're different and valid
+            if (endNode && endNode.id !== this.state.startNode.id && 
+                this.validationService.isValidWall(this.state.startNode, endNode)) {
+                this.logger.info('Creating new wall', {
+                    startNodeId: this.state.startNode.id,
+                    endNodeId: endNode.id,
+                    isNewEndNode
+                });
+                const command = new CreateWallCommand(
+                    { commandService: this.commandService },
+                    this.state.startNode,
+                    endNode,
+                    undefined, // default properties
+                    false, // startNode is always existing in this case
+                    isNewEndNode
+                );
+                await this.commandManager.execute(command);
+            }
+
+            // Clean up
+            this.cleanupPreviewLine();
+            this.state.isDrawing = false;
+            this.state.startNode = null;
+        } catch (error) {
+            this.logger.error('Error in handleDrawingMouseUp:', error instanceof Error ? error : new Error(String(error)));
+            this.cleanupPreviewLine();
+            this.state.isDrawing = false;
+            this.state.startNode = null;
         }
-
-        // Create wall between nodes if they're different and valid
-        if (endNode.id !== this.state.startNode.id && 
-            this.validationService.isValidWall(this.state.startNode, endNode)) {
-            await this.commandService.createWall(this.state.startNode, endNode);
-        }
-
-        // Clean up
-        this.cleanupPreviewLine();
-        this.state.isDrawing = false;
-        this.state.startNode = null;
     }
 
     private findWallAtPosition(position: Point): WallObject | null {
@@ -450,66 +517,23 @@ export class WallTool extends BaseTool {
         const wall = this.findWallAtPosition(point);
         if (!wall || !this.validationService.isValidSplitPoint(point, wall)) return;
 
-        try {
-            // Create new node at split point using command service
-            const newNode = await this.commandService.createNode(point);
-            if (!newNode) return;
+        const command = new SplitWallCommand({ commandService: this.commandService }, wall, point);
+        this.commandManager.execute(command);
+    }
 
-            const wallData = wall.getData();
-            const startNode = this.canvasStore.getWallGraph().getNode(wallData.startNodeId);
-            const endNode = this.canvasStore.getWallGraph().getNode(wallData.endNodeId);
+    private async handleNodeMove(node: NodeObject, newPosition: Point): Promise<void> {
+        const command = new MoveNodeCommand({ commandService: this.commandService }, node, newPosition);
+        this.commandManager.execute(command);
+    }
 
-            if (!startNode || !endNode) {
-                this.logger.error('Failed to find wall nodes during split');
-                return;
-            }
+    private async handleWallCreate(startNode: NodeObject, endNode: NodeObject, properties?: any): Promise<void> {
+        const command = new CreateWallCommand({ commandService: this.commandService }, startNode, endNode, properties);
+        this.commandManager.execute(command);
+    }
 
-            // Create two new walls connecting to the new node
-            const wall1 = await this.commandService.createWall(
-                startNode,
-                newNode,
-                {
-                    thickness: wallData.thickness,
-                    height: wallData.height
-                }
-            );
-
-            const wall2 = await this.commandService.createWall(
-                newNode,
-                endNode,
-                {
-                    thickness: wallData.thickness,
-                    height: wallData.height
-                }
-            );
-
-            if (!wall1 || !wall2) {
-                this.logger.error('Failed to create new walls during split');
-                return;
-            }
-
-            // Remove the original wall using command service
-            await this.commandService.deleteWall(wall);
-
-            // Update selection to the new node
-            if (this.state.selectedWall === wall) {
-                this.state.selectedWall = null;
-                newNode.setSelected(true);
-                newNode.setHighlighted(true);
-                this.state.selectedNode = newNode;
-
-                // Emit selection changed event
-                await this.eventManager.emit('selection:changed', {
-                    selectedNodes: [newNode.id],
-                    selectedWalls: [],
-                    selectedDoors: [],
-                    selectedWindows: [],
-                    source: 'wall-tool'
-                });
-            }
-        } catch (error) {
-            this.logger.error('Failed to split wall', error as Error);
-        }
+    private async handleWallDelete(wall: WallObject): Promise<void> {
+        const command = new DeleteWallCommand({ commandService: this.commandService }, wall);
+        this.commandManager.execute(command);
     }
 
     private initPreviewLine(startPoint: Point): void {

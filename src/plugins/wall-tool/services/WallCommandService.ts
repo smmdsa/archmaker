@@ -16,6 +16,11 @@ export class WallCommandService {
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
     }
 
+    // Add method to get wall graph
+    getWallGraph() {
+        return this.canvasStore.getWallGraph();
+    }
+
     // Commands that match the existing behavior
     async createWall(startNode: NodeObject, endNode: NodeObject, properties?: any): Promise<WallObject> {
         try {

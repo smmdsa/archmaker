@@ -132,6 +132,10 @@ export class Canvas2D {
         canvas.addEventListener('mouseleave', this.handleMouseLeave);
         canvas.addEventListener('wheel', this.handleWheel, { passive: false });
 
+        // Add keyboard event listeners
+        window.addEventListener('keydown', this.handleKeyDown);
+        window.addEventListener('keyup', this.handleKeyUp);
+
         // Subscribe to store changes
         this.eventManager.on('wall:created', (event) => {
             this.logger.info('Wall created event received:', event);
@@ -1005,4 +1009,24 @@ export class Canvas2D {
             this.previewGroup.add(group);
         }
     }
+
+    private handleKeyDown = (e: KeyboardEvent): void => {
+        this.eventManager.emit('keyboard:keydown', {
+            key: e.key.toLowerCase(),
+            ctrlKey: e.ctrlKey,
+            shiftKey: e.shiftKey,
+            altKey: e.altKey,
+            metaKey: e.metaKey
+        });
+    };
+
+    private handleKeyUp = (e: KeyboardEvent): void => {
+        this.eventManager.emit('keyboard:keyup', {
+            key: e.key.toLowerCase(),
+            ctrlKey: e.ctrlKey,
+            shiftKey: e.shiftKey,
+            altKey: e.altKey,
+            metaKey: e.metaKey
+        });
+    };
 } 

@@ -1,38 +1,102 @@
 import { ICommand } from './Command';
+import { ILogger } from '../../../core/interfaces/ILogger';
 
 export class CommandManager {
     private undoStack: ICommand[] = [];
     private redoStack: ICommand[] = [];
     private maxHistorySize: number = 50;
+    private logger: ILogger;
 
-    execute(command: ICommand): void {
-        command.execute();
-        this.undoStack.push(command);
-        this.redoStack = []; // Clear redo stack on new command
+    constructor(logger: ILogger) {
+        this.logger = logger;
+    }
 
-        // Trim history if it exceeds max size
-        if (this.undoStack.length > this.maxHistorySize) {
-            this.undoStack.shift();
+    async execute(command: ICommand): Promise<void> {
+        try {
+            this.logger.info('Executing command:', { 
+                commandType: command.constructor.name,
+                undoStackSize: this.undoStack.length,
+                redoStackSize: this.redoStack.length
+            });
+
+            await command.execute();
+            this.undoStack.push(command);
+            this.redoStack = []; // Clear redo stack on new command
+
+            // Trim history if it exceeds max size
+            if (this.undoStack.length > this.maxHistorySize) {
+                this.undoStack.shift();
+            }
+
+            this.logger.info('Command executed successfully', {
+                commandType: command.constructor.name,
+                newUndoStackSize: this.undoStack.length
+            });
+        } catch (error) {
+            this.logger.error('Failed to execute command', error as Error);
+            throw error;
         }
     }
 
-    undo(): void {
+    async undo(): Promise<void> {
         const command = this.undoStack.pop();
         if (command) {
-            command.undo();
-            this.redoStack.push(command);
+            try {
+                this.logger.info('Undoing command:', { 
+                    commandType: command.constructor.name,
+                    remainingUndoStackSize: this.undoStack.length
+                });
+
+                await command.undo();
+                this.redoStack.push(command);
+
+                this.logger.info('Command undone successfully', {
+                    commandType: command.constructor.name,
+                    newRedoStackSize: this.redoStack.length
+                });
+            } catch (error) {
+                this.logger.error('Failed to undo command', error as Error);
+                // Put the command back on the undo stack if it failed
+                this.undoStack.push(command);
+                throw error;
+            }
+        } else {
+            this.logger.info('No commands to undo');
         }
     }
 
-    redo(): void {
+    async redo(): Promise<void> {
         const command = this.redoStack.pop();
         if (command) {
-            command.execute();
-            this.undoStack.push(command);
+            try {
+                this.logger.info('Redoing command:', { 
+                    commandType: command.constructor.name,
+                    remainingRedoStackSize: this.redoStack.length
+                });
+
+                await command.execute();
+                this.undoStack.push(command);
+
+                this.logger.info('Command redone successfully', {
+                    commandType: command.constructor.name,
+                    newUndoStackSize: this.undoStack.length
+                });
+            } catch (error) {
+                this.logger.error('Failed to redo command', error as Error);
+                // Put the command back on the redo stack if it failed
+                this.redoStack.push(command);
+                throw error;
+            }
+        } else {
+            this.logger.info('No commands to redo');
         }
     }
 
     clear(): void {
+        this.logger.info('Clearing command history', {
+            previousUndoStackSize: this.undoStack.length,
+            previousRedoStackSize: this.redoStack.length
+        });
         this.undoStack = [];
         this.redoStack = [];
     }
