@@ -174,6 +174,6 @@ export class ProjectStore {
         this.walls.clear();
         this.rooms.clear();
         this.subscribers.clear();
-        this.eventManager.emit('store:disposed');
+        this.eventManager.emit('store:disposed', { store: this });
     }
 }
