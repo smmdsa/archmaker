@@ -2,7 +2,6 @@ import { IPlugin, PluginType } from '../interfaces/IPlugin';
 import { ILogger } from '../interfaces/ILogger';
 import { IEventManager } from '../interfaces/IEventManager';
 import { UIRegionManager } from '../ui/UIRegionManager';
-import { pluginRegistry } from '../plugins/registry/PluginRegistry';
 import { BaseTool } from '../tools/BaseTool';
 import { IPluginManager } from '../interfaces/IPluginManager';
 

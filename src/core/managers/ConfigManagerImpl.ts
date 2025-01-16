@@ -7,36 +7,13 @@ interface PluginConfig {
     enabled: boolean;
     settings: Record<string, any>;
 }
-
+//TODO: Implementar la configuración de los plugins
 export class ConfigManagerImpl implements IConfigManager {
     private config: Map<string, PluginConfig> = new Map();
 
     constructor(private readonly logger: ILogger) {}
 
     async initialize(): Promise<void> {
-        // Load default configuration
-        this.config.set('wall-tool', {
-            id: 'wall-tool',
-            version: '1.0.0',
-            enabled: true,
-            settings: {
-                defaultHeight: 280,
-                defaultThickness: 20,
-                defaultMaterial: 'default'
-            }
-        });
-
-        this.config.set('room-tool', {
-            id: 'room-tool',
-            version: '1.0.0',
-            enabled: true,
-            settings: {
-                defaultHeight: 280,
-                defaultThickness: 20,
-                defaultMaterial: 'default'
-            }
-        });
-
         this.logger.info('Config Manager initialized');
     }
 
@@ -46,6 +23,7 @@ export class ConfigManagerImpl implements IConfigManager {
 
     async setPluginConfig(pluginId: string, config: Partial<PluginConfig>): Promise<void> {
         const currentConfig = this.getPluginConfig(pluginId);
+        this.logger.info(`Setting config for plugin: ${pluginId}`, config);
         if (!currentConfig) return;
 
         this.config.set(pluginId, {

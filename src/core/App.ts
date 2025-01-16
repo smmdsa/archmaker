@@ -1,34 +1,20 @@
-import { EventManager } from './events/EventManager';
-import { Logger } from './logging/Logger';
-import { ConfigManager } from './config/ConfigManager';
+import { LoggerImpl as Logger, EventManagerImpl as EventManager, ConfigManagerImpl as ConfigManager } from './managers';
 import { pluginRegistry, PluginRegistry } from './plugins/registry';
-import { DrawingManager } from './drawing/DrawingManager';
 import { Canvas2D } from '../components/scenes/Canvas2D';
-import { ProjectStore } from '../store/ProjectStore';
 import { ToolService } from './tools/services/ToolService';
 
 export class App {
     private readonly eventManager: EventManager;
     private readonly logger: Logger;
     private readonly configManager: ConfigManager;
-    
-    private readonly drawingManager: DrawingManager;
-    private readonly store: ProjectStore;
     private readonly toolService: ToolService;
     private canvas: Canvas2D | null = null;
 
     constructor() {
-        this.eventManager = new EventManager();
         this.logger = new Logger();
-        this.configManager = new ConfigManager();
-        this.store = new ProjectStore();
+        this.eventManager = new EventManager(this.logger);
+        this.configManager = new ConfigManager(this.logger);
         this.toolService = new ToolService(this.eventManager, this.logger);
-        this.drawingManager = new DrawingManager(this.eventManager, this.logger);
-
-        // Configurar el sistema de eventos para el registro de fábricas
-        this.eventManager.on('drawing:register-factory', ({ type, factory }) => {
-            this.drawingManager.registerDrawableFactory(type, factory);
-        });
     }
 
     async initialize(): Promise<void> {
@@ -71,14 +57,6 @@ export class App {
 
     getPluginRegistry(): PluginRegistry {
         return pluginRegistry;
-    }
-
-    getDrawingManager(): DrawingManager {
-        return this.drawingManager;
-    }
-
-    getStore(): ProjectStore {
-        return this.store;
     }
 
     getToolService(): ToolService {

@@ -11,7 +11,6 @@ import { Topbar } from './components/Topbar';
 import { ProjectStore } from './store/ProjectStore';
 import { Canvas2D } from './components/scenes/Canvas2D';
 import { StoreService } from './store/StoreService';
-import { DrawingManager } from './core/drawing/DrawingManager';
 import { Viewer3D } from './components/scenes/Viewer3D';
 
 // Importar plugins (solo para registro)
@@ -27,20 +26,24 @@ import { WindowTool } from './plugins/window-tool/WindowTool';
 // Servicios y UI
 import { StoragePlugin } from './plugins/storage';
 
-// Verificar que los plugins se hayan importado
-console.info('Plugins loaded:', {
-    WallTool,
-    RoomTool,
-    SelectTool,
-    MoveTool,
-    RemoveTool,
-    DoorTool,
-    WindowTool,
-    StoragePlugin
-});
-
 async function initializeApp() {
     try {
+        // Inicializar logger
+        const logger = new LoggerImpl();
+        logger.info('Logger initialized');
+
+        // Verificar que los plugins se hayan importado
+        logger.info('Plugins loaded:', {
+            WallTool,
+            RoomTool,
+            SelectTool,
+            MoveTool,
+            RemoveTool,
+            DoorTool,
+            WindowTool,
+            StoragePlugin
+        });
+
         // Crear layout principal
         const app = document.createElement('div');
         app.id = 'app';
@@ -84,8 +87,7 @@ async function initializeApp() {
         // Inicializar servicios core
         console.info('Initializing core services...');
         
-        const logger = new LoggerImpl();
-        logger.info('Logger initialized');
+        
         
         const eventManager = new EventManagerImpl(logger);
         logger.info('Event Manager initialized');
