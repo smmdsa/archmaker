@@ -23,6 +23,7 @@
     "vitest": "^1.0.0"
   },
   "dependencies": {
+    "js-yaml": "^4.1.0",
     "rxjs": "^7.8.1",
     "three": "^0.160.0",
     "uuid": "^11.0.4"
