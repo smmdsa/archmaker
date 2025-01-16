@@ -1,8 +1,8 @@
-import { IEventManager } from '../core/interfaces/IEventManager';
-import { ILogger } from '../core/interfaces/ILogger';
-import { Point } from '../core/types/geometry';
-import { WindowObject } from '../plugins/window-tool/objects/WindowObject';
-import { CanvasStore } from '../store/CanvasStore';
+import { IEventManager } from '../../core/interfaces/IEventManager';
+import { ILogger } from '../../core/interfaces/ILogger';
+import { Point } from '../../core/types/geometry';
+import { WindowObject } from '../../plugins/window-tool/objects/WindowObject';
+import { CanvasStore } from '../../store/CanvasStore';
 import * as THREE from 'three';
 
 interface Transform {

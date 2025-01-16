@@ -3,7 +3,7 @@
  * @description Central store for managing project data and state, including walls and subscriptions
  */
 
-import { IWall } from '../plugins/wall-tool/interfaces/IWall';
+import { IWall } from '../plugins/wall-tool/types/WallInterfaces';
 import { IRoom } from '../plugins/room-tool/interfaces/IRoom';
 import { IEventManager } from '../core/interfaces/IEventManager';
 import { ILogger } from '../core/interfaces/ILogger';

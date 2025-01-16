@@ -1,18 +1,25 @@
 import { Vector2 } from 'three';
 import { v4 as uuidv4 } from 'uuid';
-import { IWall, IWallNode } from './interfaces';
+import { Point } from '../../../core/types/geometry';
+import { IWall, IWallNode, IWallConnection, IWallNodeMetadata } from '../types/WallInterfaces';
 
 export class WallNode implements IWallNode {
-    private readonly id: string;
-    private position: Vector2;
+    public readonly id: string;
+    public position: Point;
+    public connectedNodes: Map<string, IWallConnection>;
+    public metadata: IWallNodeMetadata;
     private connectedWalls: Map<string, IWall>;
 
     constructor(x: number, y: number) {
         this.id = uuidv4();
-        const validX = Number.isFinite(x) ? Math.round(x) : 0;
-        const validY = Number.isFinite(y) ? Math.round(y) : 0;
-        this.position = new Vector2(validX, validY);
+        this.position = { x, y };
+        this.connectedNodes = new Map();
         this.connectedWalls = new Map();
+        this.metadata = {
+            isCorner: false,
+            isIntersection: false,
+            isEndpoint: false
+        };
     }
 
     getId(): string {
@@ -20,21 +27,23 @@ export class WallNode implements IWallNode {
     }
 
     getPosition(): Vector2 {
-        return this.position.clone();
+        return new Vector2(this.position.x, this.position.y);
     }
 
     setPosition(x: number, y: number): void {
-        const validX = Number.isFinite(x) ? Math.round(x) : this.position.x;
-        const validY = Number.isFinite(y) ? Math.round(y) : this.position.y;
-        this.position.set(validX, validY);
-
-        this.connectedWalls.forEach(wall => {
-            wall.updateNodePosition(this);
-        });
+        this.position = { x, y };
+        // Update connected walls
+        for (const wall of this.connectedWalls.values()) {
+            if (wall.startNodeId === this.id) {
+                wall.startPoint = this.position;
+            } else if (wall.endNodeId === this.id) {
+                wall.endPoint = this.position;
+            }
+        }
     }
 
     addWall(wall: IWall): void {
-        this.connectedWalls.set(wall.getId(), wall);
+        this.connectedWalls.set(wall.id, wall);
     }
 
     removeWall(wallId: string): void {
@@ -43,17 +52,5 @@ export class WallNode implements IWallNode {
 
     getConnectedWalls(): IWall[] {
         return Array.from(this.connectedWalls.values());
-    }
-
-    getConnectedWallIds(): string[] {
-        return Array.from(this.connectedWalls.keys());
-    }
-
-    isConnectedToWall(wallId: string): boolean {
-        return this.connectedWalls.has(wallId);
-    }
-
-    getConnectionCount(): number {
-        return this.connectedWalls.size;
     }
 } 

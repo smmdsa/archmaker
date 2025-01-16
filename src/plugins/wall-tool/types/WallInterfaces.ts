@@ -1,5 +1,32 @@
 import { Point } from '../../../core/types/geometry';
+import { Vector2 } from 'three';
 
+// Basic wall properties
+export interface WallProperties {
+    thickness: number;
+    height: number;
+    material?: string;
+    color?: string;
+    layer?: string;
+    style?: WallStyle;
+    layerType?: WallLayerType;
+    isStructural?: boolean;
+    metadata?: Record<string, unknown>;
+}
+
+// Core wall interface
+export interface IWall {
+    id: string;
+    startNodeId: string;
+    endNodeId: string;
+    startPoint: Point;
+    endPoint: Point;
+    thickness: number;
+    height: number;
+    properties: WallProperties;
+}
+
+// Node related interfaces
 export interface IWallNodeMetadata {
     isCorner: boolean;
     isIntersection: boolean;
@@ -27,24 +54,26 @@ export interface IWallNode {
     position: Point;
     connectedNodes: Map<string, IWallConnection>;
     metadata: IWallNodeMetadata;
+    
+    // Methods from models/interfaces.ts
+    getId(): string;
+    getPosition(): Vector2;
+    setPosition(x: number, y: number): void;
+    addWall(wall: IWall): void;
+    removeWall(wallId: string): void;
+    getConnectedWalls(): IWall[];
 }
 
-export interface IWall {
-    id: string;
-    startNodeId: string;
-    endNodeId: string;
-    thickness: number;
-    height: number;
-    properties: IWallProperties;
+// Drawing state interface
+export interface WallDrawingState {
+    isDrawing: boolean;
+    startPoint: Point | null;
+    currentPoint: Point | null;
+    snapPoint: Point | null;
+    previewWall?: Partial<IWall>;
 }
 
-export interface IWallProperties {
-    material?: string;
-    style?: WallStyle;
-    layerType?: WallLayerType;
-    isStructural?: boolean;
-}
-
+// Enums
 export enum WallStyle {
     SOLID = 'solid',
     DASHED = 'dashed',
@@ -57,6 +86,7 @@ export enum WallLayerType {
     PARTITION = 'partition'
 }
 
+// Type definitions
 export type WallNodeMap = Map<string, IWallNode>;
 export type WallMap = Map<string, IWall>;
 

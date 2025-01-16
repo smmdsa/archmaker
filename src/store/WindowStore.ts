@@ -1,6 +1,6 @@
-import { IEventManager } from '../../../core/interfaces/IEventManager';
-import { ILogger } from '../../../core/interfaces/ILogger';
-import { WindowObject } from '../objects/WindowObject';
+import { IEventManager } from '../core/interfaces/IEventManager';
+import { ILogger } from '../core/interfaces/ILogger';
+import { WindowObject } from '../plugins/window-tool/objects/WindowObject';
 
 export class WindowStore {
     private static instance: WindowStore | null = null;

@@ -1,5 +1,5 @@
-import { Point } from '../../../store/ProjectStore';
-import { IWall } from '../interfaces/IWall';
+import { Point } from '../../../core/types/geometry';
+import { IWall } from '../types/WallInterfaces';
 
 export interface WallCreationParams {
     startPoint: Point;

@@ -68,11 +68,12 @@ export class WallCommandService {
 
     async updateWall(wall: WallObject, updates: Partial<any>): Promise<void> {
         try {
-            wall.updateProperties(updates);
+            if (updates.thickness) wall.updateThickness(updates.thickness);
+            if (updates.height) wall.updateHeight(updates.height);
             
-            this.logger.info('Wall updated', { 
+            this.logger.info('Wall updated', {
                 wallId: wall.id,
-                updates 
+                updates
             });
 
             await this.eventManager.emit('wall:updated', { wall });
@@ -88,8 +89,13 @@ export class WallCommandService {
             const wallId = wall.id;
 
             // Remove wall from connected nodes first
-            wall.startNode?.removeConnectedWall(wall.id);
-            wall.endNode?.removeConnectedWall(wall.id);
+            const wallData = wall.getData();
+            const graph = this.canvasStore.getWallGraph();
+            const startNode = graph.getNode(wallData.startNodeId);
+            const endNode = graph.getNode(wallData.endNodeId);
+
+            startNode?.removeConnectedWall(wall.id);
+            endNode?.removeConnectedWall(wall.id);
 
             // Remove wall from graph
             this.canvasStore.getWallGraph().removeWall(wallId);
@@ -234,7 +240,7 @@ export class WallCommandService {
                 const endNode = graph.getNode(wallData.endNodeId);
                 
                 if (!startNode || !endNode) {
-                    this.logger.error('Failed to find wall nodes during merge', { wallId });
+                    this.logger.error(`Failed to find wall nodes during merge for wall ${wallId}`);
                     continue;
                 }
 

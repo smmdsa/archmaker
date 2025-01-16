@@ -85,8 +85,8 @@ export class DeleteWallCommand extends BaseCommand {
         
         // Get the nodes
         const graph = this.context.commandService.getWallGraph();
-        this.startNode = graph.getNode(this.deletedWallData.startNodeId);
-        this.endNode = graph.getNode(this.deletedWallData.endNodeId);
+        this.startNode = graph.getNode(this.deletedWallData.startNodeId) || null;
+        this.endNode = graph.getNode(this.deletedWallData.endNodeId) || null;
 
         // Store node data if they exist
         if (this.startNode) {
@@ -326,9 +326,7 @@ export class CreateNodeCommand extends BaseCommand {
 
     async execute(): Promise<void> {
         this.createdNode = await this.context.commandService.createNode(
-            this.position,
-            this.radius,
-            this.isMovable
+            this.position
         );
     }
 

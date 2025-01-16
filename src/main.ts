@@ -9,10 +9,10 @@ import { pluginRegistry } from './core/plugins/registry';
 import { TopbarService } from './core/topbar/services/TopbarService';
 import { Topbar } from './components/Topbar';
 import { ProjectStore } from './store/ProjectStore';
-import { Canvas2D } from './components/Canvas2D';
+import { Canvas2D } from './components/scenes/Canvas2D';
 import { StoreService } from './store/StoreService';
 import { DrawingManager } from './core/drawing/DrawingManager';
-import { Viewer3D } from './scenes/Viewer3D';
+import { Viewer3D } from './components/scenes/Viewer3D';
 
 // Importar plugins (solo para registro)
 // Herramientas

@@ -1,4 +1,4 @@
-import { Point } from '../../../store/ProjectStore';
+import { Point } from '../../../core/types/geometry';
 
 export interface WallProperties {
     height: number;

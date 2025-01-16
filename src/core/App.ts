@@ -3,7 +3,7 @@ import { Logger } from './logging/Logger';
 import { ConfigManager } from './config/ConfigManager';
 import { pluginRegistry, PluginRegistry } from './plugins/registry';
 import { DrawingManager } from './drawing/DrawingManager';
-import { Canvas2D } from '../components/Canvas2D';
+import { Canvas2D } from '../components/scenes/Canvas2D';
 import { ProjectStore } from '../store/ProjectStore';
 import { ToolService } from './tools/services/ToolService';
 

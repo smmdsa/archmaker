@@ -98,7 +98,7 @@ export class WallTool extends BaseTool {
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
         this.selectionStore = SelectionStore.getInstance(eventManager, logger);
         this.commandService = new WallCommandService(eventManager, logger);
-        this.validationService = new WallValidationService(eventManager, logger);
+        this.validationService = new WallValidationService(eventManager, logger, this.commandService.getWallGraph());
         this.commandManager = new CommandManager(logger);
 
         // Subscribe to wall removal events

@@ -3,11 +3,13 @@ import { NodeObject } from '../objects/NodeObject';
 import { WallObject } from '../objects/WallObject';
 import { IEventManager } from '../../../core/interfaces/IEventManager';
 import { ILogger } from '../../../core/interfaces/ILogger';
+import { WallGraph } from '../models/WallGraph';
 
 export class WallValidationService {
     constructor(
         private readonly eventManager: IEventManager,
-        private readonly logger: ILogger
+        private readonly logger: ILogger,
+        private readonly wallGraph: WallGraph
     ) {}
 
     // Node validation
@@ -52,26 +54,38 @@ export class WallValidationService {
     }
 
     findWallBetweenNodes(node1: NodeObject, node2: NodeObject): WallObject | null {
-        const walls1 = node1.getConnectedWalls();
-        const walls2 = node2.getConnectedWalls();
+        const walls1 = node1.getData().connectedWallIds;
+        const walls2 = node2.getData().connectedWallIds;
 
-        // Find common wall between nodes
-        return walls1.find(wall => 
-            walls2.includes(wall) &&
-            ((wall.startNode === node1 && wall.endNode === node2) ||
-             (wall.startNode === node2 && wall.endNode === node1))
-        ) || null;
+        // Find common wall ID between nodes
+        const commonWallId = walls1.find(wallId => walls2.includes(wallId));
+        
+        if (!commonWallId) return null;
+
+        // Get wall from graph
+        const wall = this.wallGraph.getWall(commonWallId);
+        if (!wall) return null;
+
+        // Verify the wall connects these specific nodes
+        const wallData = wall.getData();
+        if ((wallData.startNodeId === node1.id && wallData.endNodeId === node2.id) ||
+            (wallData.startNodeId === node2.id && wallData.endNodeId === node1.id)) {
+            return wall;
+        }
+
+        return null;
     }
 
     // Wall intersection validation
     isValidWallPlacement(startPoint: Point, endPoint: Point, existingWalls: WallObject[]): boolean {
         // Check if new wall would intersect with existing walls
         for (const wall of existingWalls) {
+            const wallData = wall.getData();
             if (this.doLinesIntersect(
                 startPoint,
                 endPoint,
-                wall.startNode.position,
-                wall.endNode.position
+                wallData.startPoint,
+                wallData.endPoint
             )) {
                 return false;
             }

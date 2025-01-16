@@ -1,6 +1,6 @@
-import { IEventManager } from '../../../core/interfaces/IEventManager';
-import { ILogger } from '../../../core/interfaces/ILogger';
-import { DoorObject } from '../objects/DoorObject';
+import { IEventManager } from '../core/interfaces/IEventManager';
+import { ILogger } from '../core/interfaces/ILogger';
+import { DoorObject } from '../plugins/door-tool/objects/DoorObject';
 
 export class DoorStore {
     private static instance: DoorStore | null = null;
