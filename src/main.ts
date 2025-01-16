@@ -25,6 +25,7 @@ import { WindowTool } from './plugins/window-tool/WindowTool';
 
 // Servicios y UI
 import { StoragePlugin } from './plugins/storage';
+import { WallLabelPlugin } from './plugins/wall-label/WallLabelPlugin';
 
 async function initializeApp() {
     try {
@@ -41,7 +42,8 @@ async function initializeApp() {
             RemoveTool,
             DoorTool,
             WindowTool,
-            StoragePlugin
+            StoragePlugin,
+            WallLabelPlugin
         });
 
         // Crear layout principal
