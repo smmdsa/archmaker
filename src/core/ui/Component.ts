@@ -1,10 +1,8 @@
 import { EventBus } from '../events/EventBus';
-import { GlobalStyles } from './styles/GlobalStyles';
 
 export abstract class Component {
     protected element: HTMLElement;
     protected eventBus: EventBus;
-    protected styles: GlobalStyles;
     private eventSubscriptions: Array<() => void>;
     private componentId: string;
 
@@ -13,7 +11,6 @@ export abstract class Component {
         container.appendChild(this.element);
         
         this.eventBus = EventBus.getInstance();
-        this.styles = GlobalStyles.getInstance();
         this.eventSubscriptions = [];
         this.componentId = id || this.generateComponentId();
         

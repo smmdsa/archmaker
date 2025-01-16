@@ -26,40 +26,7 @@ export class StoragePlugin implements IPlugin {
         version: '1.0.0',
         type: 'service',
         description: 'Provides project storage capabilities',
-        author: 'ArchMaker',
-        uiComponents: [
-            {
-                id: 'storage-menu',
-                region: 'topbar',
-                order: 0,
-                template: `
-                    <div class="topbar-menu">
-                        <div class="topbar-menu-trigger">File</div>
-                        <div class="topbar-menu-content">
-                            <div class="topbar-menu-item" data-action="new">
-                                <i>📄</i> New Project
-                            </div>
-                            <div class="topbar-menu-item" data-action="open">
-                                <i>📂</i> Open Project
-                            </div>
-                            <div class="topbar-menu-item" data-action="save">
-                                <i>💾</i> Save Project
-                            </div>
-                            <div class="topbar-menu-separator"></div>
-                            <div class="topbar-menu-item" data-action="export">
-                                <i>📤</i> Export
-                            </div>
-                            <div class="topbar-menu-item" data-action="import">
-                                <i>📥</i> Import
-                            </div>
-                        </div>
-                    </div>
-                `,
-                events: {
-                    click: this.handleMenuClick.bind(this)
-                }
-            }
-        ]
+        author: 'ArchMaker'
     };
 
     constructor(
@@ -74,7 +41,6 @@ export class StoragePlugin implements IPlugin {
     async initialize(): Promise<void> {
         this.logger.info('Initializing Storage Plugin...');
         await this.storageService.initialize();
-        // Event subscriptions moved to StorageTopbarItem
     }
 
     async dispose(): Promise<void> {
@@ -87,7 +53,7 @@ export class StoragePlugin implements IPlugin {
     }
 
     getUIComponents(): UIComponentManifest[] {
-        return this.manifest.uiComponents || [];
+        return [];
     }
 
     private handleMenuClick(event: Event): void {
@@ -304,7 +270,7 @@ export class StoragePlugin implements IPlugin {
         });
 
         this.eventManager.emit('project:created', {
-            projectId: this.canvasStore.getProjectMetadata().id
+            projectId: this.canvasStore.getProjectMetadata().name
         });
     }
 

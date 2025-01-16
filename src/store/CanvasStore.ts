@@ -1,8 +1,8 @@
 import { WallGraph } from '../plugins/wall-tool/models/WallGraph';
 import { ILogger } from '../core/interfaces/ILogger';
 import { IEventManager } from '../core/interfaces/IEventManager';
-import { DoorStore } from '../plugins/door-tool/stores/DoorStore';
-import { WindowStore } from '../plugins/window-tool/stores/WindowStore';
+import { DoorStore } from './DoorStore';
+import { WindowStore } from './WindowStore';
 import { ProjectData, SceneData, ViewerSettings } from '../core/storage/interfaces';
 import { WallObject } from '../plugins/wall-tool/objects/WallObject';
 import { DoorObject } from '../plugins/door-tool/objects/DoorObject';

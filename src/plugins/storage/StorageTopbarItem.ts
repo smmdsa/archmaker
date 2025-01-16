@@ -21,7 +21,7 @@ import { CanvasStore } from '../../store/CanvasStore';
 export class StorageTopbarItem implements ITopbarItem {
     declare readonly id: string;
     declare readonly manifest: ITopbarManifest;
-    private menu: StorageMenu;
+    private menu!: StorageMenu;
     private storagePlugin: StoragePlugin;
     private canvasStore: CanvasStore;
 
@@ -30,45 +30,79 @@ export class StorageTopbarItem implements ITopbarItem {
         private readonly logger: ILogger,
         private readonly configManager: IConfigManager
     ) {
-        this.menu = new StorageMenu(eventManager, logger);
         this.storagePlugin = new StoragePlugin(eventManager, logger, configManager);
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);
     }
 
     async initialize(): Promise<void> {
-        await this.storagePlugin.initialize();
-        
-        this.eventManager.on('storage:menu:new', this.handleNewProject.bind(this));
-        this.eventManager.on('storage:menu:open', this.handleOpenProject.bind(this));
-        this.eventManager.on('storage:menu:save', this.handleSaveProject.bind(this));
-        this.eventManager.on('storage:menu:export', this.handleExport.bind(this));
-        this.eventManager.on('storage:menu:import', this.handleImport.bind(this));
-        
-        this.logger.info('StorageTopbarItem initialized');
+        try {
+            // Initialize the plugin first
+            await this.storagePlugin.initialize();
+            this.logger.info('StoragePlugin initialized');
+
+            // Create menu after plugin is initialized
+            this.menu = new StorageMenu(this.eventManager, this.logger);
+            
+            // Bind event handlers
+            this.eventManager.on('storage:menu:new', this.handleNewProject.bind(this));
+            this.eventManager.on('storage:menu:open', this.handleOpenProject.bind(this));
+            this.eventManager.on('storage:menu:save', this.handleSaveProject.bind(this));
+            this.eventManager.on('storage:menu:export', this.handleExport.bind(this));
+            this.eventManager.on('storage:menu:import', this.handleImport.bind(this));
+            
+            this.logger.info('StorageTopbarItem initialized');
+        } catch (error) {
+            this.logger.error('Failed to initialize StorageTopbarItem:', error as Error);
+            throw error;
+        }
     }
 
     private async handleNewProject(): Promise<void> {
-        await this.storagePlugin.handleNewProject();
+        try {
+            await this.storagePlugin.handleNewProject();
+        } catch (error) {
+            this.logger.error('Failed to handle new project:', error as Error);
+        }
     }
 
     private async handleOpenProject(): Promise<void> {
-        await this.storagePlugin.handleOpenProject();
+        try {
+            await this.storagePlugin.handleOpenProject();
+        } catch (error) {
+            this.logger.error('Failed to handle open project:', error as Error);
+        }
     }
 
     private async handleSaveProject(): Promise<void> {
-        await this.storagePlugin.handleSaveProject();
+        try {
+            await this.storagePlugin.handleSaveProject();
+        } catch (error) {
+            this.logger.error('Failed to handle save project:', error as Error);
+        }
     }
 
     private async handleExport(): Promise<void> {
-        await this.storagePlugin.handleExport();
+        try {
+            await this.storagePlugin.handleExport();
+        } catch (error) {
+            this.logger.error('Failed to handle export:', error as Error);
+        }
     }
 
     private async handleImport(): Promise<void> {
-        await this.storagePlugin.handleImport();
+        try {
+            await this.storagePlugin.handleImport();
+        } catch (error) {
+            this.logger.error('Failed to handle import:', error as Error);
+        }
     }
 
     async dispose(): Promise<void> {
-        await this.storagePlugin.dispose();
-        this.menu.dispose();
+        try {
+            await this.storagePlugin.dispose();
+            this.menu.dispose();
+        } catch (error) {
+            this.logger.error('Failed to dispose StorageTopbarItem:', error as Error);
+        }
     }
 } 

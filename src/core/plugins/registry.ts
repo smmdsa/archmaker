@@ -18,7 +18,7 @@ export interface PluginRegistration {
 /**
  * Singleton registry class that manages plugin registration and instantiation
  */
-class PluginRegistry {
+export class PluginRegistry {
     private static instance: PluginRegistry;
     private plugins: Map<string, PluginRegistration> = new Map();
     private logger?: ILogger;

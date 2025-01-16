@@ -6,7 +6,7 @@ import { ILogger } from '../../../core/interfaces/ILogger';
 import { IConfigManager } from '../../../core/interfaces/IConfig';
 import { ProjectStore } from '../../../store/ProjectStore';
 import { RoomStoreAdapter } from './RoomStoreAdapter';
-import { IDrawingService, DrawingCreationParams } from '../../../core/services/IDrawingService';
+import { IDrawingService, DrawingCreationParams } from '../../../core/interfaces/IDrawingService';
 
 export class RoomService implements IDrawingService<IRoom> {
     private rooms: Map<string, IRoom> = new Map();

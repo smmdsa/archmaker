@@ -1,11 +1,7 @@
 import { BaseObject } from '../../../core/objects/BaseObject';
 import { SelectableObjectType } from '../../../core/interfaces/ISelectableObject';
 import { Point } from '../../../core/types/geometry';
-import { Layer } from 'konva/lib/Layer';
-import { Line } from 'konva/lib/shapes/Line';
-import { Text } from 'konva/lib/shapes/Text';
-import { Group } from 'konva/lib/Group';
-import { WallData } from '../../../core/storage/interfaces';
+import { WallData as WallDataStorage } from '../../../core/storage/interfaces';
 import { IEventManager } from '../../../core/interfaces/IEventManager';
 
 interface WallData {
@@ -18,12 +14,11 @@ interface WallData {
 }
 
 export class WallObject extends BaseObject {
+
     private readonly startNodeId: string;
     private readonly endNodeId: string;
     private startPoint: Point;
     private endPoint: Point;
-    private wallGroup: Group | null = null;
-    private wallLine: Line | null = null;
     private lengthLabel: Text | null = null;
     private thickness: number = 10;
     private height: number = 280;
@@ -84,119 +79,7 @@ export class WallObject extends BaseObject {
         this.height = height;
     }
 
-    render(layer: Layer): void {
-        // Cleanup old elements if they exist and are not in the current layer
-        if (this.wallGroup && this.wallGroup.getLayer() !== layer) {
-            this.wallGroup.destroy();
-            this.wallGroup = null;
-            this.wallLine = null;
-            this.lengthLabel = null;
-        }
-
-        let style = this.styles.normal;
-        if (this._isSelected) {
-            style = this.styles.selected;
-        } else if (this._isHighlighted) {
-            style = this.styles.highlighted;
-        }
-
-        // Create or update wall group
-        if (!this.wallGroup) {
-            this.wallGroup = new Group();
-            layer.add(this.wallGroup);
-
-            // Create wall line
-            this.wallLine = new Line({
-                points: [
-                    this.startPoint.x,
-                    this.startPoint.y,
-                    this.endPoint.x,
-                    this.endPoint.y
-                ],
-                ...style,
-                hitStrokeWidth: 10 // Make hit area larger for easier selection
-            });
-
-            // Add double-click handler to the wall line
-            this.wallLine.on('dblclick', (event) => {
-                // Get the stage
-                const stage = event.target.getStage();
-                if (!stage) return;
-
-                // Get the pointer position in stage coordinates
-                const stagePoint = stage.getPointerPosition();
-                if (!stagePoint) return;
-
-                // Transform the point from stage coordinates to relative coordinates
-                const transform = {
-                    x: stage.x(),
-                    y: stage.y(),
-                    scale: stage.scaleX()
-                };
-
-                const position = {
-                    x: (stagePoint.x - transform.x) / transform.scale,
-                    y: (stagePoint.y - transform.y) / transform.scale
-                };
-
-                // Emit wall:dblclick event with transformed position
-                this.eventManager.emit('wall:dblclick', {
-                    wallId: this.id,
-                    position: position
-                });
-
-                // Stop event propagation
-                event.cancelBubble = true;
-            });
-
-            this.wallGroup.add(this.wallLine);
-
-            // Calculate wall length in centimeters (1px = 1cm)
-            const dx = this.endPoint.x - this.startPoint.x;
-            const dy = this.endPoint.y - this.startPoint.y;
-            const length = Math.round(Math.sqrt(dx * dx + dy * dy));
-
-            // Create length label
-            this.lengthLabel = new Text({
-                x: (this.startPoint.x + this.endPoint.x) / 2,
-                y: (this.startPoint.y + this.endPoint.y) / 2,
-                text: `${length} cm`,
-                fontSize: 12,
-                fill: '#666666',
-                padding: 4,
-                offsetX: 0,
-                offsetY: -10,
-                rotation: Math.atan2(dy, dx) * 180 / Math.PI,
-                name: `wall-label-${this.id}`
-            });
-
-            this.wallGroup.add(this.lengthLabel);
-        } else {
-            // Update existing elements
-            if (this.wallLine) {
-                this.wallLine.points([
-                    this.startPoint.x,
-                    this.startPoint.y,
-                    this.endPoint.x,
-                    this.endPoint.y
-                ]);
-                this.wallLine.stroke(style.stroke);
-                this.wallLine.strokeWidth(style.strokeWidth);
-            }
-
-            if (this.lengthLabel) {
-                const dx = this.endPoint.x - this.startPoint.x;
-                const dy = this.endPoint.y - this.startPoint.y;
-                const length = Math.round(Math.sqrt(dx * dx + dy * dy));
-                
-                this.lengthLabel.position({
-                    x: (this.startPoint.x + this.endPoint.x) / 2,
-                    y: (this.startPoint.y + this.endPoint.y) / 2
-                });
-                this.lengthLabel.text(`${length} cm`);
-                this.lengthLabel.rotation(Math.atan2(dy, dx) * 180 / Math.PI);
-            }
-        }
+    render(_: any): void {
     }
 
     getData(): WallData {
@@ -291,14 +174,7 @@ export class WallObject extends BaseObject {
     setSelected(selected: boolean): void {
         if (this._isSelected !== selected) {
             super.setSelected(selected);
-            if (this.wallLine) {
-                const style = selected ? this.styles.selected : 
-                             this._isHighlighted ? this.styles.highlighted : 
-                             this.styles.normal;
-                this.wallLine.stroke(style.stroke);
-                this.wallLine.strokeWidth(style.strokeWidth);
-                this.wallGroup?.getLayer()?.batchDraw();
-            }
+            
         }
     }
 
@@ -306,18 +182,15 @@ export class WallObject extends BaseObject {
     setHighlighted(highlighted: boolean): void {
         if (this._isHighlighted !== highlighted) {
             super.setHighlighted(highlighted);
-            if (this.wallLine) {
-                const style = this._isSelected ? this.styles.selected :
-                             highlighted ? this.styles.highlighted :
-                             this.styles.normal;
-                this.wallLine.stroke(style.stroke);
-                this.wallLine.strokeWidth(style.strokeWidth);
-                this.wallGroup?.getLayer()?.batchDraw();
-            }
+            
         }
     }
 
-    toStorageData(): WallData {
+    dispose(): void {
+        
+    }
+
+    toStorageData(): WallDataStorage {
         return {
             id: this.id,
             startNodeId: this.startNodeId,
@@ -330,7 +203,7 @@ export class WallObject extends BaseObject {
     }
 
     static fromStorageData(
-        data: WallData,
+        data: WallDataStorage,
         eventManager: IEventManager
     ): WallObject {
         return new WallObject(
@@ -343,5 +216,19 @@ export class WallObject extends BaseObject {
             data.thickness,
             data.height
         );
+    }
+
+    updateThickness(thickness: number): void {
+        this.thickness = thickness;
+        this._bounds = {
+            x: Math.min(this.startPoint.x, this.endPoint.x) - this.thickness / 2,
+            y: Math.min(this.startPoint.y, this.endPoint.y) - this.thickness / 2,
+            width: Math.abs(this.endPoint.x - this.startPoint.x) + this.thickness,
+            height: Math.abs(this.endPoint.y - this.startPoint.y) + this.thickness
+        };
+    }
+
+    updateHeight(height: number): void {
+        this.height = height;
     }
 } 

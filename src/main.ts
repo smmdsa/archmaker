@@ -9,10 +9,9 @@ import { pluginRegistry } from './core/plugins/registry';
 import { TopbarService } from './core/topbar/services/TopbarService';
 import { Topbar } from './components/Topbar';
 import { ProjectStore } from './store/ProjectStore';
-import { Canvas2D } from './components/Canvas2D';
+import { Canvas2D } from './components/scenes/Canvas2D';
 import { StoreService } from './store/StoreService';
-import { DrawingManager } from './core/drawing/DrawingManager';
-import { Viewer3D } from './scenes/Viewer3D';
+import { Viewer3D } from './components/scenes/Viewer3D';
 
 // Importar plugins (solo para registro)
 // Herramientas
@@ -26,21 +25,27 @@ import { WindowTool } from './plugins/window-tool/WindowTool';
 
 // Servicios y UI
 import { StoragePlugin } from './plugins/storage';
-
-// Verificar que los plugins se hayan importado
-console.info('Plugins loaded:', {
-    WallTool,
-    RoomTool,
-    SelectTool,
-    MoveTool,
-    RemoveTool,
-    DoorTool,
-    WindowTool,
-    StoragePlugin
-});
+import { WallLabelPlugin } from './plugins/wall-label/WallLabelPlugin';
 
 async function initializeApp() {
     try {
+        // Inicializar logger
+        const logger = new LoggerImpl();
+        logger.info('Logger initialized');
+
+        // Verificar que los plugins se hayan importado
+        logger.info('Plugins loaded:', {
+            WallTool,
+            RoomTool,
+            SelectTool,
+            MoveTool,
+            RemoveTool,
+            DoorTool,
+            WindowTool,
+            StoragePlugin,
+            WallLabelPlugin
+        });
+
         // Crear layout principal
         const app = document.createElement('div');
         app.id = 'app';
@@ -84,8 +89,7 @@ async function initializeApp() {
         // Inicializar servicios core
         console.info('Initializing core services...');
         
-        const logger = new LoggerImpl();
-        logger.info('Logger initialized');
+        
         
         const eventManager = new EventManagerImpl(logger);
         logger.info('Event Manager initialized');
@@ -108,13 +112,16 @@ async function initializeApp() {
         const pluginManager = new PluginManager(logger, eventManager, uiManager);
         const toolService = new ToolService(eventManager, logger);
         const topbarService = new TopbarService(eventManager, logger, configManager);
-        const drawingManager = new DrawingManager(eventManager, logger);
-        logger.info('Drawing Manager initialized');
 
         // Inicializar servicios en orden
         logger.info('Starting service initialization sequence...');
         await uiManager.initialize();
         logger.info('UI Manager initialized');
+
+        // Initialize topbar service first since other services might need it
+        await topbarService.initialize();
+        logger.info('Topbar Service initialized');
+
         await toolService.initialize();
         logger.info('Tool Service initialized');
         await pluginManager.initialize();

@@ -3,7 +3,7 @@ import { CanvasStore } from '../../store/CanvasStore';
 import type { IConfigManager } from '../../core/interfaces/IConfig';
 import { BaseTool } from '../../core/tools/BaseTool';
 import { WindowObject } from './objects/WindowObject';
-import { WindowStore } from './stores/WindowStore';
+import { WindowStore } from '../../store/WindowStore';
 import { WallObject } from '../wall-tool/objects/WallObject';
 import type { CanvasEvent } from '../../core/tools/interfaces/ITool';
 import { v4 as uuidv4 } from 'uuid';
