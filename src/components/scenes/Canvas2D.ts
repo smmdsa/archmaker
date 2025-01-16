@@ -49,6 +49,7 @@ export class Canvas2D {
     private windowsGroup: THREE.Group;
     private nodesGroup: THREE.Group;
     private previewGroup: THREE.Group;
+    private labelsGroup: THREE.Group;
     
     constructor(
         containerId: string,
@@ -91,6 +92,8 @@ export class Canvas2D {
         this.windowsGroup = new THREE.Group();
         this.nodesGroup = new THREE.Group();
         this.previewGroup = new THREE.Group();
+        this.labelsGroup = new THREE.Group();
+        this.labelsGroup.name = 'labelsGroup';
 
         this.scene.add(this.gridGroup);
         this.scene.add(this.wallsGroup);
@@ -98,6 +101,7 @@ export class Canvas2D {
         this.scene.add(this.windowsGroup);
         this.scene.add(this.nodesGroup);
         this.scene.add(this.previewGroup);
+        this.scene.add(this.labelsGroup);
 
         // Initialize CanvasStore
         this.canvasStore = CanvasStore.getInstance(eventManager, logger);

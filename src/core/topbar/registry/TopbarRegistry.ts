@@ -36,6 +36,7 @@ class TopbarRegistry {
     ): ITopbarItem[] {
         return Array.from(this.items.values()).map(
             ({ constructor: Constructor, manifest }) => {
+                logger.info(`TopbarRegistry: Creating ${manifest.id} topbar item`);
                 const instance = new Constructor(eventManager, logger, configManager);
                 Object.defineProperty(instance, 'manifest', { value: manifest });
                 Object.defineProperty(instance, 'id', { value: manifest.id });
